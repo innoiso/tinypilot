@@ -6,8 +6,8 @@ Requirements below were checked against primary sources on September 3, 2026.
 
 ## Official requirements
 
-The [official rules](https://webmcp.devpost.com/rules) close registration and
-submission on **September 3, 2026 at 1:00 p.m. Pacific Time**. Existing applications
+The [challenge overview](https://webmcp.devpost.com/) lists the extended
+submission deadline as **September 4, 2026 at 1:00 a.m. Pacific Time**. Existing applications
 qualify when meaningfully extended during the submission period; distinguish the
 new work with dated commit evidence. Open-source foundations are permitted when
 their licenses are respected. The entry must remain freely accessible to judges
@@ -46,9 +46,9 @@ is the WebMCP tool layer, schema validation, cancellation support, and
 corresponding verification and documentation. Preserve
 the upstream copyright and [MIT license](../LICENSE).
 
-The starting checkout for this work was
-`12648779a2790049bf7fa93e576d8d7d45b6d199`. Record the final challenge commit SHA,
-commit dates, and comparison URL before submission. Do not present the upstream
+The public submission branch starts from current upstream TinyPilot commit
+`5f34d8a66d05fb8ca3625e7458915e55cfb7fac7`. The WebMCP implementation is commit
+`c6d90c78be56714d18602ae0343171033e7cd8d1`. Do not present the upstream
 TinyPilot code as newly created challenge work.
 
 ## Compatibility contract
@@ -217,13 +217,13 @@ tool results.
 | Entrant / authorized representative | Pending                                                                                         |
 | Live URL                            | Pending deployment and judge-access verification                                                |
 | Judge credentials                   | Supply privately in the Devpost form if required                                                |
-| Public repository                   | Pending publication of final challenge changes                                                  |
-| Installed implementation commit     | `aec290a32f224f5ddefd1b9896e112a11046ddc2`                                                      |
+| Public repository                   | `https://github.com/innoiso/tinypilot`                                                           |
+| Public implementation commit        | `c6d90c78be56714d18602ae0343171033e7cd8d1`                                                      |
 | Public YouTube URL                  | Final video built; pending publication                                                          |
-| Video duration                      | 2:27.000; 1920×1080 H.264 with stereo AAC audio                                                 |
+| Video duration                      | 2:27.000; 1920×1080 H.264 with mono AAC audio                                                   |
 | Actual tested browser / version     | Google Chrome 152 on macOS                                                                      |
 | Native registered tool count        | 75 unique; authentication-disabled Pro; 0 errors                                                |
-| Verified local checks               | 77 JS tests; demo and restricted-container self-tests; install/rollback round trip              |
+| Verified local checks               | 84 JS tests, including 55 WebMCP tests; install/rollback round trip                              |
 | Verified real device checks         | Pro 3.0.2; 11 exact hashes; services active; safe native status/about/disconnected-serial calls |
 | Devpost submission receipt          | Pending; saving a draft is not submission                                                       |
 

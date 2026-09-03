@@ -14,7 +14,7 @@ remote physical computer into 75 discoverable, typed WebMCP tools, so a person
 can delegate console work while watching and retaining control.
 
 **Demo video:** `submission/video/tinypilot-webmcp-demo.mp4` — 2:27.000,
-1920×1080 H.264, stereo AAC. Publish as a public YouTube video and replace this
+1920×1080 H.264, mono AAC. Publish as a public YouTube video and replace this
 line with the URL.
 
 **Live app:** Pending a judge-accessible HTTPS URL. `https://tinypilot/` is the
@@ -22,13 +22,9 @@ verified physical appliance on the local network and is not sufficient for
 remote judges. The repository includes `Dockerfile.webmcp-demo` and an isolated
 demo server for a public deployment.
 
-**Public source:** Pending publication. The implementation installed on the
-physical device is `aec290a32f224f5ddefd1b9896e112a11046ddc2`; the committed
-submission package is `f4a85e5`. The local branch is
-`codex/tinypilot-webmcp`, and its configured origin is the upstream
-`tiny-pilot/tinypilot` repository, which does not yet publish these challenge
-commits. The public repository must expose this branch or equivalent final
-content, with the MIT license visible at its root.
+**Public source:** https://github.com/innoiso/tinypilot is a public GitHub fork
+of `tiny-pilot/tinypilot`. Its default `master` branch contains the complete
+submission and retains the upstream MIT license at the repository root.
 
 ## Description for Devpost
 
@@ -81,7 +77,7 @@ structured results. Sensitive values are write-only and omitted from adapter
 logs. Optional Pro adapters discover installed controllers at runtime without
 redistributing TinyPilot's licensed implementation.
 
-The repository includes the implementation, 77 JavaScript tests, the full
+The repository includes the implementation, 84 JavaScript tests, the full
 capability map, a restricted-container demo, deployment and rollback tooling,
 and the upstream MIT license. The physical install was verified by exact source
 hashes, active service checks, native browser discovery, and a safe live status
@@ -90,17 +86,17 @@ call.
 ### What is new
 
 TinyPilot Community is the open-source foundation, with its existing authorship
-and license retained. The challenge contribution begins from commit
-`12648779a2790049bf7fa93e576d8d7d45b6d199` and adds the WebMCP integration,
-validation, tests, documentation, demo runtime, and deployment tooling. The
-final installed commit is `aec290a32f224f5ddefd1b9896e112a11046ddc2`.
+and license retained. The public challenge branch starts at upstream commit
+`5f34d8a66d05fb8ca3625e7458915e55cfb7fac7`. Commit
+`c6d90c78be56714d18602ae0343171033e7cd8d1` adds the final WebMCP integration,
+validation, tests, documentation, demo runtime, and deployment tooling.
 
 ## Judging alignment
 
 | Criterion | Evidence |
 | --- | --- |
 | WebMCP leverage | 75 typed, browser-discovered tools map the dashboard's major supported controls and use the existing operator session. |
-| Execution | Physical TinyPilot Pro 3.0.2 install, exact-hash deployment record, 77 JavaScript tests, and a recorded end-to-end task. |
+| Execution | Physical TinyPilot Pro 3.0.2 install, exact-hash deployment record, 84 JavaScript tests, and a recorded end-to-end task. |
 | Potential impact | Remote support, lab administration, recovery, accessibility, and repetitive console work can be delegated while a person watches. |
 | Creativity and ambition | WebMCP reaches through a website into a real remote KVM appliance and attached physical computer. |
 
@@ -116,7 +112,7 @@ final installed commit is `aec290a32f224f5ddefd1b9896e112a11046ddc2`.
 > reaches Family Matters through TinyPilot while the person watches the same
 > console. Narrated by the builder from a physical hardware test.
 >
-> Source: [PUBLIC REPOSITORY URL]
+> Source: https://github.com/innoiso/tinypilot
 > Live demo: [PUBLIC HTTPS URL]
 > WebMCP Challenge: https://openai.com/webmcp-challenge/
 
@@ -128,10 +124,11 @@ final installed commit is `aec290a32f224f5ddefd1b9896e112a11046ddc2`.
 - [x] Public-demo container and operating instructions are present.
 - [x] Open-source MIT license is detectable at repository root.
 - [x] Demo video is under three minutes, has audio, and clearly shows WebMCP use.
-- [ ] Publish the final branch or repository and verify anonymous access.
+- [x] Publish the final repository and verify anonymous access.
 - [ ] Deploy an HTTPS demo and verify it in WebMCP-enabled Chrome or ChatGPT's in-app browser from outside the local network.
 - [ ] Upload the final MP4 to YouTube as Public and verify playback without signing in.
-- [ ] Replace all three pending URLs in this document and the Devpost form.
+- [ ] Replace the pending live-demo and YouTube URLs in this document and the
+  Devpost form.
 - [ ] Add judge credentials privately if the live app requires authentication.
 - [ ] Complete entrant, eligibility, team, and contact fields.
 - [ ] Submit on Devpost and retain the final confirmation page or receipt.
