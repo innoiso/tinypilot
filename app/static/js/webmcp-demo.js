@@ -8,12 +8,13 @@ if (window.TINYPILOT_WEBMCP_DEMO === true) {
     "min-height:30px;padding:4px 12px;box-sizing:border-box;" +
     "background:#fff2d7;color:#684611;font:13px system-ui,sans-serif;";
   const label = document.createElement("span");
-  label.textContent = "Demo device — no physical hardware connected";
+  label.textContent =
+    "Private micro desktop — in-memory demo, no physical hardware or VM";
   banner.append(label);
   const screen = document.getElementById("remote-screen");
   if (screen) {
     const reset = document.createElement("button");
-    reset.textContent = "Reset sample screen";
+    reset.textContent = "Reset my demo computer";
     reset.type = "button";
     reset.style.cssText =
       "background:transparent;border:1px solid #b09159;border-radius:4px;" +

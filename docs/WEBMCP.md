@@ -296,7 +296,7 @@ the source/protocol audit or mock transport tests.
 
 ## Run the isolated demo
 
-From the repository root, use Python 3.9+ and the supported Node runtime for this
+From the repository root, use Python 3.11+ and the supported Node runtime for this
 checkout. Node 22 is a suitable runtime for the pinned Mocha toolchain.
 
 ```sh
@@ -306,10 +306,11 @@ npm ci
 venv/bin/python3 dev-scripts/serve-webmcp-demo --port 8000
 ```
 
-Open `http://127.0.0.1:8000/` in a WebMCP-capable browser. The target is a simple
-US-keyboard notes editor: type text, move/click the pointer, switch between notes
-and the input monitor, and save a note with Ctrl+S. Reset sample screen clears
-the simulated target. Typed text is never evaluated or executed.
+Open `http://127.0.0.1:8000/` in a WebMCP-capable browser. Each browser session
+receives a private TinyDesk micro desktop backed by a few kilobytes of in-memory
+state. Type text, move/click the pointer, switch between Notes and Activity, and
+save a note with Ctrl+S. Reset my demo computer clears only the caller's state.
+Typed text is never evaluated or executed.
 
 This launcher creates a fresh temporary `TINYPILOT_HOME_DIR` and applies the
 normal SQLite migrations there. It uses the real application, controllers,
@@ -320,20 +321,23 @@ shim the browser's WebMCP provider.
 The visible label and response headers identify the demo. Video is escaped SVG
 refreshed by demo-only JavaScript; `capture_screen` converts the rendered frame
 to JPEG. H.264 values can be stored but the demo does not run an encoder, Janus,
-or STUN. Wi-Fi, hostname, updates, power, and diagnostics use sample state.
-Network status is the checkout's debug fixture. HTTPS policy storage is real,
-but debug mode does not enforce a production reverse proxy's HTTPS redirects.
+or STUN. Accounts, video preferences, Wi-Fi, hostname, updates, power, HTTPS
+preference, and diagnostics use session-private sample state. Network status is
+the checkout's debug fixture.
 
 The demo fences physical HID writes, process launches, and outbound server
 connections. Its CSP also limits browser connections to the same origin, so
 external diagnostic-log uploading is intentionally unavailable in the demo.
-Passwords supplied for simulated Wi-Fi are discarded. The debugger and reloader
-are disabled. All demo data disappears when the process exits.
+Passwords supplied for simulated accounts or Wi-Fi are validated and discarded.
+The process keeps at most 128 least-recently-used micro desktops, so memory use
+is bounded. The debugger and reloader are disabled. All demo data disappears
+when the process exits.
 
 An external bind requires `--username` and a password provided through
 `TINYPILOT_DEMO_PASSWORD` (or an environment variable selected with
 `--password-env`). Use an HTTPS reverse proxy when deploying the demo for remote
-browser access. This launcher is an isolated demonstration server, not the
+browser access. Run one application replica because the demo session state is
+process-local. This launcher is an isolated demonstration server, not the
 production TinyPilot deployment procedure.
 
 ## Verification
@@ -347,7 +351,8 @@ node_modules/.bin/eslint app/static/js/webmcp*.js
 ```
 
 The demo self-test exercises real HTTP and Socket.IO handlers, CSRF rejection,
-account creation/login/logout, unauthenticated denial, input conversion, SVG
+account simulation/login/logout, two-browser state separation, bounded session
+eviction, unauthenticated denial, input conversion, SVG
 escaping, sample service changes, and the installed external-effect fence. The
 JavaScript tests inject providers/controllers to check schemas, argument routing,
 permissions, cancellation, release behavior, and registration failures.

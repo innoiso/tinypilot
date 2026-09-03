@@ -19,8 +19,8 @@ line with the URL.
 
 **Live app:** Pending a judge-accessible HTTPS URL. `https://tinypilot/` is the
 verified physical appliance on the local network and is not sufficient for
-remote judges. The repository includes `Dockerfile.webmcp-demo` and an isolated
-demo server for a public deployment.
+remote judges. The repository includes `Dockerfile.webmcp-demo` and a
+session-isolated in-memory micro desktop for public deployment.
 
 **Public source:** https://github.com/innoiso/tinypilot is a public GitHub fork
 of `tiny-pilot/tinypilot`. Its default `master` branch contains the complete
@@ -45,8 +45,8 @@ and installed TinyPilot Pro capabilities. The tools register as soon as the
 normal dashboard loads and are discovered by the WebMCP host.
 
 The demo proves the integration against a physical TinyPilot Pro 3.0.2
-appliance and connected computer. Given the goal of reaching *Family Matters*
-from Wikipedia's *Common sunflower* page, the agent observes the same display as
+appliance and connected computer. Given the goal of reaching _Family Matters_
+from Wikipedia's _Common sunflower_ page, the agent observes the same display as
 the person and sends its navigation through TinyPilot's WebMCP controls. The
 visible result reaches the requested page on the attached computer.
 
@@ -93,12 +93,12 @@ validation, tests, documentation, demo runtime, and deployment tooling.
 
 ## Judging alignment
 
-| Criterion | Evidence |
-| --- | --- |
-| WebMCP leverage | 75 typed, browser-discovered tools map the dashboard's major supported controls and use the existing operator session. |
-| Execution | Physical TinyPilot Pro 3.0.2 install, exact-hash deployment record, 84 JavaScript tests, and a recorded end-to-end task. |
-| Potential impact | Remote support, lab administration, recovery, accessibility, and repetitive console work can be delegated while a person watches. |
-| Creativity and ambition | WebMCP reaches through a website into a real remote KVM appliance and attached physical computer. |
+| Criterion               | Evidence                                                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| WebMCP leverage         | 75 typed, browser-discovered tools map the dashboard's major supported controls and use the existing operator session.            |
+| Execution               | Physical TinyPilot Pro 3.0.2 install, exact-hash deployment record, 84 JavaScript tests, and a recorded end-to-end task.          |
+| Potential impact        | Remote support, lab administration, recovery, accessibility, and repetitive console work can be delegated while a person watches. |
+| Creativity and ambition | WebMCP reaches through a website into a real remote KVM appliance and attached physical computer.                                 |
 
 ## YouTube upload copy
 
@@ -128,7 +128,7 @@ validation, tests, documentation, demo runtime, and deployment tooling.
 - [ ] Deploy an HTTPS demo and verify it in WebMCP-enabled Chrome or ChatGPT's in-app browser from outside the local network.
 - [ ] Upload the final MP4 to YouTube as Public and verify playback without signing in.
 - [ ] Replace the pending live-demo and YouTube URLs in this document and the
-  Devpost form.
+      Devpost form.
 - [ ] Add judge credentials privately if the live app requires authentication.
 - [ ] Complete entrant, eligibility, team, and contact fields.
 - [ ] Submit on Devpost and retain the final confirmation page or receipt.

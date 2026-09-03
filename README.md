@@ -4,8 +4,7 @@
 
 This branch adds native browser tools for TinyPilot's dashboard. Tools register
 with document.modelContext during initial page startup and reuse the dashboard's
-authenticated controllers and keyboard/mouse connection. TinyPilot adds no agent
-panel or task runtime. Additional Pro tools register only when the installed
+authenticated controllers and keyboard/mouse connection. Additional Pro tools register only when the installed
 edition supplies their controllers.
 
 Start with [WebMCP setup and complete capability mapping](docs/WEBMCP.md),
@@ -18,8 +17,9 @@ venv/bin/python3 -m pip install -r requirements.txt
 venv/bin/python3 dev-scripts/serve-webmcp-demo --port 8011
 ```
 
-Open `http://127.0.0.1:8011` in a WebMCP-enabled browser. The visible demo banner
-identifies simulated hardware; nothing is typed into a real computer. For an
+Open `http://127.0.0.1:8011` in a WebMCP-enabled browser. Each browser session
+gets a private in-memory micro desktop rendered as SVG, with no VM or operating
+system per user. The visible banner identifies the simulation. For an
 HTTPS-hosted demo, build `Dockerfile.webmcp-demo`, supply
 `TINYPILOT_DEMO_PASSWORD` as a host secret, and proxy port 8000. The seeded account
 is `judge`. Never connect this public demo container to a physical KVM.
