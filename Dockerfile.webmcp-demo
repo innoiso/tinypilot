@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /srv/tinypilot
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    && useradd --create-home --uid 10001 demo
+COPY app ./app
+COPY dev-scripts/serve-webmcp-demo ./dev-scripts/serve-webmcp-demo
+COPY LICENSE README.md ./
+USER demo
+EXPOSE 8000
+# Provide TINYPILOT_DEMO_PASSWORD through the host's secret configuration.
+# The server refuses an external bind without a seeded, validated account.
+CMD ["python3", "dev-scripts/serve-webmcp-demo", "--host", "0.0.0.0", "--port", "8000", "--username", "judge"]

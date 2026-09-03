@@ -59,12 +59,13 @@ async function processJsonResponse(response) {
   );
 }
 
-export async function getLatestRelease() {
+export async function getLatestRelease({ signal } = {}) {
   return fetch("/api/latestRelease", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then(processJsonResponse)
     .then((updateInfo) => {
@@ -77,12 +78,13 @@ export async function getLatestRelease() {
     });
 }
 
-export async function getVersion() {
+export async function getVersion({ signal } = {}) {
   return fetch("/api/version", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then(processJsonResponse)
     .then((versionResponse) => {
@@ -93,7 +95,7 @@ export async function getVersion() {
     });
 }
 
-export async function shutdown(restart) {
+export async function shutdown(restart, { signal } = {}) {
   let route = "/api/shutdown";
   if (restart) {
     route = "/api/restart";
@@ -106,27 +108,31 @@ export async function shutdown(restart) {
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then((httpResponse) => {
       // A 502 usually means that nginx shutdown before it could process the
-      // response. Treat this as success.
+      // response. The request may have succeeded, but we did not receive an
+      // application acknowledgment.
       if (httpResponse.status === 502) {
-        return;
+        return { acknowledgment: "uncertain" };
       }
-      return processJsonResponse(httpResponse);
+      return processJsonResponse(httpResponse).then(() => ({
+        acknowledgment: "confirmed",
+      }));
     })
     .catch((error) => {
       // Depending on timing, the server may not respond to the shutdown
       // request because it's shutting down. If we get a NetworkError, assume
-      // the shutdown succeeded.
+      // the operation may have started, but do not claim an acknowledgment.
       if (error.message.indexOf("NetworkError") >= 0) {
-        return;
+        return { acknowledgment: "uncertain" };
       }
       throw error;
     });
 }
 
-export async function update() {
+export async function update({ signal } = {}) {
   return fetch("/api/update", {
     method: "PUT",
     headers: {
@@ -135,15 +141,17 @@ export async function update() {
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   }).then(processJsonResponse);
 }
 
-export async function getUpdateStatus() {
+export async function getUpdateStatus({ signal } = {}) {
   return fetch("/api/update", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then(processJsonResponse)
     .then((data) => {
@@ -157,12 +165,13 @@ export async function getUpdateStatus() {
     });
 }
 
-export async function determineHostname() {
+export async function determineHostname({ signal } = {}) {
   return fetch("/api/hostname", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then(processJsonResponse)
     .then((hostnameResponse) => {
@@ -173,8 +182,8 @@ export async function determineHostname() {
     });
 }
 
-export async function getUsers() {
-  return fetch("/api/users")
+export async function getUsers({ signal } = {}) {
+  return fetch("/api/users", { signal })
     .then(processJsonResponse)
     .then((data) => {
       if (!Object.hasOwn(data, "users")) {
@@ -187,7 +196,7 @@ export async function getUsers() {
     });
 }
 
-export async function deleteAllUsers() {
+export async function deleteAllUsers({ signal } = {}) {
   return fetch("/api/users", {
     method: "DELETE",
     mode: "same-origin",
@@ -197,10 +206,11 @@ export async function deleteAllUsers() {
       "X-CSRFToken": getCsrfToken(),
       "Content-Type": "application/json",
     },
+    signal,
   }).then(processJsonResponse);
 }
 
-export async function addUser(username, password, role) {
+export async function addUser(username, password, role, { signal } = {}) {
   return fetch("/api/user", {
     method: "POST",
     headers: {
@@ -211,6 +221,7 @@ export async function addUser(username, password, role) {
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     body: JSON.stringify({ username, password, role }),
   })
     .then(processJsonResponse)
@@ -222,7 +233,7 @@ export async function addUser(username, password, role) {
     });
 }
 
-export async function updateUserPassword(username, password) {
+export async function updateUserPassword(username, password, { signal } = {}) {
   return fetch("/api/user/password", {
     method: "PUT",
     headers: {
@@ -233,11 +244,12 @@ export async function updateUserPassword(username, password) {
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     body: JSON.stringify({ username, password }),
   }).then(processJsonResponse);
 }
 
-export async function updateCurrentUserPassword(password) {
+export async function updateCurrentUserPassword(password, { signal } = {}) {
   return fetch("/api/currentUser/password", {
     method: "PUT",
     headers: {
@@ -248,16 +260,18 @@ export async function updateCurrentUserPassword(password) {
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     body: JSON.stringify({ password }),
   }).then(processJsonResponse);
 }
 
-export async function deleteUser(username) {
+export async function deleteUser(username, { signal } = {}) {
   return fetch("/api/user", {
     method: "DELETE",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     headers: {
       "X-CSRFToken": getCsrfToken(),
       "Content-Type": "application/json",
@@ -273,7 +287,7 @@ export async function deleteUser(username) {
     });
 }
 
-export async function login(username, password) {
+export async function login(username, password, { signal } = {}) {
   return fetch("/api/auth", {
     method: "POST",
     headers: {
@@ -284,11 +298,12 @@ export async function login(username, password) {
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     body: JSON.stringify({ username, password }),
   }).then(processJsonResponse);
 }
 
-export async function logout() {
+export async function logout({ signal } = {}) {
   return fetch("/api/logout", {
     method: "POST",
     headers: {
@@ -298,15 +313,17 @@ export async function logout() {
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   }).then(processJsonResponse);
 }
 
-export async function requiresHttps() {
+export async function requiresHttps({ signal } = {}) {
   return fetch("/api/settings/requiresHttps", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then(processJsonResponse)
     .then((data) => {
@@ -317,12 +334,13 @@ export async function requiresHttps() {
     });
 }
 
-export async function setRequiresHttps(shouldBeRequired) {
+export async function setRequiresHttps(shouldBeRequired, { signal } = {}) {
   return fetch("/api/settings/requiresHttps", {
     method: "PUT",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-CSRFToken": getCsrfToken(),
@@ -331,12 +349,13 @@ export async function setRequiresHttps(shouldBeRequired) {
   }).then(processJsonResponse);
 }
 
-export async function changeHostname(newHostname) {
+export async function changeHostname(newHostname, { signal } = {}) {
   return fetch("/api/hostname", {
     method: "PUT",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-CSRFToken": getCsrfToken(),
@@ -347,12 +366,13 @@ export async function changeHostname(newHostname) {
     .then(() => newHostname);
 }
 
-export async function getNetworkStatus() {
+export async function getNetworkStatus({ signal } = {}) {
   return fetch("/api/network/status", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then(processJsonResponse)
     .then((response) => {
@@ -363,12 +383,13 @@ export async function getNetworkStatus() {
     });
 }
 
-export async function getWifiSettings() {
+export async function getWifiSettings({ signal } = {}) {
   return fetch("/api/network/settings/wifi", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then(processJsonResponse)
     .then((response) => {
@@ -381,12 +402,13 @@ export async function getWifiSettings() {
     });
 }
 
-export async function enableWifi(countryCode, ssid, psk) {
+export async function enableWifi(countryCode, ssid, psk, { signal } = {}) {
   return fetch("/api/network/settings/wifi", {
     method: "PUT",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-CSRFToken": getCsrfToken(),
@@ -397,12 +419,13 @@ export async function enableWifi(countryCode, ssid, psk) {
     .then(() => true);
 }
 
-export async function disableWifi() {
+export async function disableWifi({ signal } = {}) {
   return fetch("/api/network/settings/wifi", {
     method: "DELETE",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-CSRFToken": getCsrfToken(),
@@ -431,12 +454,13 @@ export async function checkStatus(baseURL = "", signal) {
     .then(() => true);
 }
 
-export async function getDebugLogs() {
+export async function getDebugLogs({ signal } = {}) {
   return fetch("/api/debugLogs", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then((response) => {
       if (!response.ok) {
@@ -447,13 +471,14 @@ export async function getDebugLogs() {
     .then((response) => response.text());
 }
 
-export async function textToShareableUrl(text) {
+export async function textToShareableUrl(text, { signal } = {}) {
   const baseUrl = "https://logs.tinypilotkvm.com";
   return fetch(baseUrl + "/", {
     method: "PUT",
     mode: "cors",
     cache: "no-cache",
     redirect: "error",
+    signal,
     body: text,
   })
     .then(processJsonResponse)
@@ -466,12 +491,13 @@ export async function textToShareableUrl(text) {
     .then((data) => baseUrl + `/${data.id}`);
 }
 
-export async function getVideoSettings() {
+export async function getVideoSettings({ signal } = {}) {
   return fetch("/api/settings/video", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then(processJsonResponse)
     .then((data) => {
@@ -496,19 +522,23 @@ export async function getVideoSettings() {
     });
 }
 
-export async function saveVideoSettings({
-  streamingMode,
-  mjpegFrameRate,
-  mjpegQuality,
-  h264Bitrate,
-  h264StunServer,
-  h264StunPort,
-}) {
+export async function saveVideoSettings(
+  {
+    streamingMode,
+    mjpegFrameRate,
+    mjpegQuality,
+    h264Bitrate,
+    h264StunServer,
+    h264StunPort,
+  },
+  { signal } = {}
+) {
   return fetch("/api/settings/video", {
     method: "PUT",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-CSRFToken": getCsrfToken(),
@@ -524,44 +554,48 @@ export async function saveVideoSettings({
   }).then(processJsonResponse);
 }
 
-export async function applyVideoSettings() {
+export async function applyVideoSettings({ signal } = {}) {
   return fetch("/api/settings/video/apply", {
     method: "POST",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     headers: {
       "X-CSRFToken": getCsrfToken(),
     },
   }).then(processJsonResponse);
 }
 
-export async function getLicensingMetadata() {
+export async function getLicensingMetadata({ signal } = {}) {
   return fetch("/licensing", {
     method: "GET",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   }).then(processJsonResponse);
 }
 
-export async function isMjpegStreamAvailable() {
+export async function isMjpegStreamAvailable({ signal } = {}) {
   return fetch("/stream", {
     method: "HEAD",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
   })
     .then((response) => response.ok)
     .catch(() => false);
 }
 
-export async function pasteText(text, language) {
+export async function pasteText(text, language, { signal } = {}) {
   return fetch("/api/paste", {
     method: "POST",
     mode: "same-origin",
     cache: "no-cache",
     redirect: "error",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-CSRFToken": getCsrfToken(),

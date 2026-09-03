@@ -177,6 +177,9 @@
 
     <!-- prettier-ignore -->
     {% include "components/debug-mode.html" %}
+    <script id="webmcp-context" type="application/json">
+      {{ {'isAdmin': is_admin, 'username': current_username, 'isDemo': is_webmcp_demo|default(false)} | tojson }}
+    </script>
     <script src="/third-party/socket.io/4.7.1/socket.io.min.js"></script>
     <script type="module" src="/js/app.js"></script>
 

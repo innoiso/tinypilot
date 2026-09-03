@@ -1,5 +1,32 @@
 # TinyPilot
 
+## WebMCP challenge extension
+
+This branch adds native browser tools for TinyPilot's dashboard. Tools register
+with document.modelContext during initial page startup and reuse the dashboard's
+authenticated controllers and keyboard/mouse connection. TinyPilot adds no agent
+panel or task runtime. Additional Pro tools register only when the installed
+edition supplies their controllers.
+
+Start with [WebMCP setup and complete capability mapping](docs/WEBMCP.md),
+the [challenge entry package](docs/WEBMCP-CHALLENGE.md).
+The isolated demo runs the real application with simulated hardware:
+
+```bash
+python3 -m venv venv
+venv/bin/python3 -m pip install -r requirements.txt
+venv/bin/python3 dev-scripts/serve-webmcp-demo --port 8011
+```
+
+Open `http://127.0.0.1:8011` in a WebMCP-enabled browser. The visible demo banner
+identifies simulated hardware; nothing is typed into a real computer. For an
+HTTPS-hosted demo, build `Dockerfile.webmcp-demo`, supply
+`TINYPILOT_DEMO_PASSWORD` as a host secret, and proxy port 8000. The seeded account
+is `judge`. Never connect this public demo container to a physical KVM.
+
+This extension preserves TinyPilot's upstream license and credits. The sections
+below document the original TinyPilot project.
+
 [![License](http://img.shields.io/:license-mit-blue.svg?style=flat-square)](LICENSE)
 [![Contributors](https://img.shields.io/github/contributors/tiny-pilot/tinypilot)](https://github.com/tiny-pilot/tinypilot/graphs/contributors)
 [![CircleCI](https://circleci.com/gh/tiny-pilot/tinypilot.svg?style=svg)](https://circleci.com/gh/tiny-pilot/tinypilot)

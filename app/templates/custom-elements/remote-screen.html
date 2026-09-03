@@ -298,6 +298,9 @@
           if (name === "fullscreen" && newValue === "true") {
             const screenWrapper =
               this.shadowRoot.querySelector(".screen-wrapper");
+            // A WebMCP call may already have entered fullscreen.
+            // Avoid consuming user activation again when applying view styles.
+            if (this.shadowRoot.fullscreenElement === screenWrapper) return;
             if (screenWrapper.requestFullscreen) {
               screenWrapper.requestFullscreen();
             } else if (screenWrapper.mozRequestFullScreen) {

@@ -10,5 +10,11 @@
     "mocha": "11.7.6",
     "playwright": "1.60.0",
     "prettier": "3.8.3"
+  },
+  "scripts": {
+    "test": "mocha \"app/static/js/*.test.js\"",
+    "test:webmcp": "mocha \"app/static/js/webmcp*.test.js\"",
+    "demo:webmcp": "venv/bin/python3 dev-scripts/serve-webmcp-demo",
+    "test:demo": "venv/bin/python3 dev-scripts/serve-webmcp-demo --self-test"
   }
 }

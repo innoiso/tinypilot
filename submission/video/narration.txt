@@ -1,0 +1,17 @@
+Most computer-use agents depend on software running inside the computer they want to control. TinyPilot takes a different approach. It connects to the computer's physical video outputs and USB inputs, appearing to the target as a monitor, keyboard, and mouse.
+
+TinyPilot WebMCP turns that hardware connection into structured tools in the browser for other agents. An agent can inspect the screen, click, type, press key combinations, and operate TinyPilot's settings through the same dashboard that a person would already use.
+
+This matters because the attached computer does not need a custom agent, browser extension, or remote-control service installed. The approach can access operating-system installers, recovery consoles, BIOS, locked-down devices, legacy systems, remote servers, and other environments where installing software is difficult or impossible.
+
+Think about, for example, being able to just configure your BIOS without actually having direct access to the computer itself.
+
+This footage shows the physical TinyPilot appliance and computers used for this test. On the left is the XPS, which is connected directly to the TinyPilot. It is the server in this demonstration. On the right is the MacBook, which acts as the client. The AI agent runs on the MacBook and interacts with the XPS through Chrome using WebMCP tools.
+
+When the dashboard loads, the browser discovers seventy-five native WebMCP tools covering screenshots, keyboard and mouse input, display and video settings, diagnostics, networking, security, updates, power, and TinyPilot's installed Pro capabilities too.
+
+For this demonstration, the agent began on Wikipedia's Common sunflower page and reached Family Matters by just following article links. It observed the attached computer through the TinyPilot dashboard and sent every click and keystroke through the browser-discovered WebMCP tools.
+
+The person can see the same screen, follow the agent's progress, and use the normal keyboard and mouse controls at any time.
+
+The final Family Matters page confirms the result. TinyPilot WebMCP provides an open, inspectable bridge between an AI agent and a physical computer without having to require custom software running on that target computer.

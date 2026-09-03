@@ -1,0 +1,542 @@
+#!/usr/bin/env python3
+"""Run TinyPilot with a disposable, visibly simulated device.
+
+Usage: venv/bin/python3 dev-scripts/serve-webmcp-demo --port 8000
+
+Uses the real Flask routes, authentication, CSRF, request parsers, SQLite
+migrations, and Socket.IO input handlers. Only hardware/system service effects
+are replaced. The target is a bounded US-keyboard text editor, not an operating
+system: typed text never executes. Video is refreshed SVG, not MJPEG/H.264.
+Power, updates, Wi-Fi, hostname, and diagnostics use sample state. All state is
+discarded on exit. This is not proof of behavior on physical TinyPilot hardware.
+
+For an external bind, provide --username and set TINYPILOT_DEMO_PASSWORD (or
+--password-env NAME). Use an HTTPS reverse proxy for browser WebMCP support.
+The Flask debugger and reloader are always disabled, including external binds.
+"""
+
+import argparse
+import html
+import importlib
+import logging
+import os
+import pathlib
+import re
+import string
+import sys
+import tempfile
+import threading
+import time
+import types
+
+
+DEMO_LABEL = 'Demo device — no physical hardware connected'
+MAX_TEXT = 8192
+WIDTH = 1280
+HEIGHT = 720
+
+
+class DemoDevice:
+    """Small input target whose entire state is in this process."""
+
+    def __init__(self, hid, text_to_hid):
+        self.lock = threading.RLock()
+        self.hid = hid
+        self.character_map = {}
+        for character in string.printable:
+            try:
+                key = text_to_hid.convert(character, 'en-US')
+                if key is not None:
+                    self.character_map[(key.keycode, key.modifier)] = character
+            except text_to_hid.UnsupportedCharacterError:
+                continue
+        self.hostname = 'tinypilot-demo'
+        self.wifi = (None, None)
+        self.updated_at = None
+        self.version = '0.0.0-webmcp-demo'
+        self.service_events = []
+        self.reset()
+
+    def reset(self):
+        with self.lock:
+            self.text = ''
+            self.cursor = 0
+            self.selected_all = False
+            self.caps_lock = False
+            self.pointer = (0.56, 0.45)
+            self.buttons = 0
+            self.scroll = 0
+            self.key_count = 0
+            self.mouse_count = 0
+            self.active_tab = 'notes'
+            self.last_input = 'Ready for keyboard and mouse input'
+            self.saved = False
+            self.revision = 0
+
+    def service_event(self, message):
+        with self.lock:
+            self.service_events.append(message)
+            self.service_events = self.service_events[-12:]
+            self.revision += 1
+
+    def _insert(self, value):
+        if self.selected_all:
+            self.text, self.cursor = '', 0
+            self.selected_all = False
+        available = MAX_TEXT - len(self.text)
+        value = value[:max(available, 0)]
+        self.text = self.text[:self.cursor] + value + self.text[self.cursor:]
+        self.cursor += len(value)
+        self.saved = False
+
+    def send_key(self, _path, key):
+        with self.lock:
+            code, modifier = key.keycode, key.modifier
+            if code == 0:
+                return
+            self.key_count += 1
+            self.revision += 1
+            self.last_input = f'Keyboard input {self.key_count} received'
+            hid = self.hid
+            ctrl = modifier & (hid.MODIFIER_LEFT_CTRL | hid.MODIFIER_RIGHT_CTRL)
+            meta = modifier & (hid.MODIFIER_LEFT_META | hid.MODIFIER_RIGHT_META)
+            alt = modifier & (hid.MODIFIER_LEFT_ALT | hid.MODIFIER_RIGHT_ALT)
+            shift = modifier & (hid.MODIFIER_LEFT_SHIFT | hid.MODIFIER_RIGHT_SHIFT)
+            if (ctrl or meta) and not alt:
+                if code == hid.KEYCODE_A:
+                    self.selected_all = True
+                    self.last_input = 'Selected all note text'
+                elif code == hid.KEYCODE_S:
+                    self.saved = True
+                    self.last_input = 'Note saved in demo memory'
+                else:
+                    self.last_input = 'Modifier chord received by demo target'
+                return
+            if ctrl or meta or alt:
+                self.last_input = 'System shortcut received (simulated only)'
+                return
+            if code == hid.KEYCODE_CAPS_LOCK:
+                self.caps_lock = not self.caps_lock
+            elif code == hid.KEYCODE_ESCAPE:
+                self.selected_all = False
+            elif code == hid.KEYCODE_BACKSPACE_DELETE:
+                if self.selected_all:
+                    self.text, self.cursor, self.selected_all = '', 0, False
+                elif self.cursor:
+                    self.text = self.text[:self.cursor - 1] + self.text[self.cursor:]
+                    self.cursor -= 1
+                self.saved = False
+            elif code == hid.KEYCODE_DELETE:
+                if self.selected_all:
+                    self.text, self.cursor, self.selected_all = '', 0, False
+                else:
+                    self.text = self.text[:self.cursor] + self.text[self.cursor + 1:]
+                self.saved = False
+            elif code == hid.KEYCODE_LEFT_ARROW:
+                self.cursor = max(0, self.cursor - 1)
+                self.selected_all = False
+            elif code == hid.KEYCODE_RIGHT_ARROW:
+                self.cursor = min(len(self.text), self.cursor + 1)
+                self.selected_all = False
+            elif code == hid.KEYCODE_HOME:
+                self.cursor = self.text.rfind('\n', 0, self.cursor) + 1
+            elif code == hid.KEYCODE_END:
+                end = self.text.find('\n', self.cursor)
+                self.cursor = len(self.text) if end == -1 else end
+            elif code in (hid.KEYCODE_ENTER, hid.KEYCODE_NUMPAD_ENTER):
+                self._insert('\n')
+            else:
+                canonical_modifier = hid.MODIFIER_LEFT_SHIFT if shift else 0
+                character = self.character_map.get((code, canonical_modifier))
+                if character is not None:
+                    if self.caps_lock and character.isalpha():
+                        character = character.swapcase()
+                    self._insert(character)
+                else:
+                    self.last_input = f'USB key {code:#04x} received (simulated only)'
+
+    def send_keys(self, path, keys):
+        for key in keys:
+            self.send_key(path, key)
+
+    def release_keys(self, _path):
+        # No USB keys are ever held by this simulated target.
+        return None
+
+    def mouse(self, _path, buttons, relative_x, relative_y, vertical, horizontal):
+        with self.lock:
+            self.pointer = (relative_x, relative_y)
+            self.mouse_count += 1
+            self.revision += 1
+            if buttons and not self.buttons:
+                self.last_input = 'Mouse click received by demo target'
+                if relative_x < 0.19 and 0.24 < relative_y < 0.33:
+                    self.active_tab = 'notes'
+                elif relative_x < 0.19 and 0.34 < relative_y < 0.43:
+                    self.active_tab = 'input'
+            elif vertical or horizontal:
+                self.scroll = max(0, self.scroll + vertical)
+                self.last_input = 'Scroll received by demo target'
+            self.buttons = buttons
+
+    def state(self):
+        with self.lock:
+            return {
+                'demo': True,
+                'physicalHardware': False,
+                'text': self.text,
+                'cursor': self.cursor,
+                'keysReceived': self.key_count,
+                'mouseEventsReceived': self.mouse_count,
+                'pointer': self.pointer,
+                'lastInput': self.last_input,
+                'saved': self.saved,
+                'revision': self.revision,
+                'serviceEvents': list(self.service_events),
+            }
+
+    def svg(self):
+        """Render only escaped text; no user SVG, links, script, or HTML."""
+        with self.lock:
+            body = []
+
+            def text(x, y, value, size=20, color='#dbe6f5', weight='400'):
+                body.append(
+                    f'<text x="{x}" y="{y}" fill="{color}" font-size="{size}" '
+                    f'font-weight="{weight}">{html.escape(str(value))}</text>')
+
+            body.extend([
+                '<rect width="1280" height="720" fill="#111a2b"/>',
+                '<rect width="1280" height="58" fill="#0a1221"/>',
+                '<circle cx="27" cy="29" r="6" fill="#54ddaa"/>',
+                '<rect x="0" y="58" width="248" height="662" fill="#141f32"/>',
+                '<rect x="277" y="144" width="970" height="492" rx="12" '
+                'fill="#0a1221" stroke="#2d405e"/>',
+            ])
+            text(45, 37, 'RECOVERY WORKSPACE', 18, '#f3f7ff', '600')
+            text(840, 36, 'SIMULATED TARGET  /  USB INPUT PREVIEW', 15, '#91a5c0')
+            text(25, 108, 'HOST', 13, '#7d94b4')
+            text(25, 140, 'demo-computer', 22, '#f3f7ff', '600')
+            active_y = 175 if self.active_tab == 'notes' else 245
+            body.append(f'<rect x="14" y="{active_y}" width="220" '
+                        'height="55" rx="8" fill="#263d59"/>')
+            text(28, 210, 'Recovery notes', 20)
+            text(28, 280, 'Input monitor', 20)
+            text(25, 390, 'CONSOLE STATUS', 13, '#7d94b4')
+            text(25, 427, 'Ready', 22, '#54ddaa', '600')
+            text(25, 466, 'US keyboard layout', 15, '#9aaec8')
+            text(25, 494, 'No commands execute', 15, '#9aaec8')
+            text(25, 620, f'{self.key_count} key events', 16, '#9aaec8')
+            text(25, 650, f'{self.mouse_count} pointer events', 16, '#9aaec8')
+            text(278, 109, 'Recovery notes' if self.active_tab == 'notes'
+                 else 'Input monitor', 30, '#f3f7ff', '600')
+            text(1050, 109, 'Saved' if self.saved else 'Local demo', 17, '#54ddaa')
+            if self.active_tab == 'notes':
+                text(305, 181, 'Type a support note. Ctrl+S saves it in memory.',
+                     16, '#829ab9')
+                body.append('<line x1="305" y1="201" x2="1218" y2="201" '
+                            'stroke="#26364e"/>')
+                lines = self.text.expandtabs(4).split('\n')
+                visual_lines = []
+                for line in lines:
+                    visual_lines.extend([line[i:i + 72] for i in range(0, len(line), 72)] or [''])
+                offset = min(self.scroll, max(0, len(visual_lines) - 13))
+                if self.selected_all and self.text:
+                    body.append('<rect x="304" y="218" width="912" height="371" '
+                                'rx="4" fill="#183f64"/>')
+                for index, line in enumerate(visual_lines[offset:offset + 13]):
+                    text(308, 245 + index * 27, line, 19)
+                if not self.text:
+                    text(308, 245, 'Your shared support note appears here…', 19, '#596f8f')
+                text(308, 611, f'{len(self.text)} / {MAX_TEXT} characters  ·  '
+                     f'Caret {self.cursor}', 14, '#7d94b4')
+            else:
+                text(310, 204, 'Real TinyPilot handlers → simulated USB target', 23)
+                text(310, 265, f'Keyboard events: {self.key_count}', 21)
+                text(310, 310, f'Pointer events: {self.mouse_count}', 21)
+                text(310, 355, f'Pointer: {self.pointer[0]:.3f}, {self.pointer[1]:.3f}', 21)
+                text(310, 400, f'Buttons held: {self.buttons}', 21)
+                text(310, 475, self.last_input, 18, '#54ddaa')
+                text(310, 540, 'No physical input devices are opened.', 17, '#9aaec8')
+            text(278, 675, self.last_input, 16, '#9aaec8')
+            text(278, 702, DEMO_LABEL, 15, '#e9bb72')
+            pointer_x = min(1260, max(5, round(self.pointer[0] * WIDTH)))
+            pointer_y = min(690, max(5, round(self.pointer[1] * HEIGHT)))
+            body.append(f'<path transform="translate({pointer_x} {pointer_y})" '
+                        'd="M0 0 L0 24 L6 18 L11 30 L17 27 L11 16 L21 16 Z" '
+                        'fill="#f5f8ff" stroke="#111a2b" stroke-width="2"/>')
+            return ('<svg xmlns="http://www.w3.org/2000/svg" width="1280" '
+                    'height="720" viewBox="0 0 1280 720" '
+                    'font-family="ui-monospace, monospace">' + ''.join(body) + '</svg>')
+
+
+def _deny_external_effects(event, _args):
+    """Fail closed if a forgotten backend path tries to leave the demo."""
+    if event in {'subprocess.Popen', 'os.system', 'os.posix_spawn', 'os.exec',
+                 'os.fork', 'os.forkpty', 'socket.connect'}:
+        raise RuntimeError('Demo isolation blocked a process or outbound connection')
+
+
+def create_demo_app(username=None, password=None):
+    """Create a real TinyPilot app in a fresh, private temporary directory."""
+    if 'main' in sys.modules or 'env' in sys.modules:
+        raise RuntimeError('Run the demo in a fresh Python process, never inside a device server')
+    project = pathlib.Path(__file__).resolve().parents[1]
+    os.chdir(project)
+    sys.path.insert(0, str(project / 'app'))
+    temporary_home = tempfile.TemporaryDirectory(prefix='tinypilot-webmcp-demo-')
+    # macOS temp roots may be symlinks; TinyPilot requires a canonical home.
+    os.environ['TINYPILOT_HOME_DIR'] = str(pathlib.Path(temporary_home.name).resolve())
+    os.environ['DEBUG'] = '1'
+    os.environ['USE_RELOADER'] = '0'
+    # This demo deliberately uses Socket.IO's native threading mode. Loading
+    # eventlet only for threads.reschedule breaks kqueue with macOS Python 3.9.
+    # Supply the matching scheduling boundary before application imports.
+    scheduler = types.ModuleType('threads')
+    scheduler.reschedule = time.sleep
+    sys.modules['threads'] = scheduler
+    main = importlib.import_module('main')
+    flask = importlib.import_module('flask')
+    hid = importlib.import_module('hid.keycodes')
+    hid_write = importlib.import_module('hid.write')
+    fake_keyboard = importlib.import_module('hid.keyboard')
+    fake_mouse = importlib.import_module('hid.mouse')
+    text_to_hid = importlib.import_module('text_to_hid')
+    api = importlib.import_module('api')
+    views = importlib.import_module('views')
+    update_logs = importlib.import_module('update_logs')
+    device = DemoDevice(hid, text_to_hid)
+    app = main.app
+    app.config.update(WEBMCP_DEMO=True, DEBUG=True, MAX_CONTENT_LENGTH=65536)
+    app.extensions['webmcp_demo'] = device
+    app.extensions['webmcp_demo_home'] = temporary_home
+    logging.getLogger().setLevel(logging.INFO)
+
+    # Install replacements before any account creation triggers service work.
+    fake_keyboard.send_keystroke = device.send_key
+    fake_keyboard.send_keystrokes = device.send_keys
+    fake_keyboard.release_keys = device.release_keys
+    fake_mouse.send_mouse_event = device.mouse
+
+    def deny_hid(*_args, **_kwargs):
+        raise hid_write.WriteError('Physical HID writes are disabled in the demo')
+
+    hid_write.write_to_hid_interface = deny_hid
+    api.env.KEYBOARD_PATH = str(pathlib.Path(temporary_home.name) / 'demo-keyboard')
+    api.env.MOUSE_PATH = str(pathlib.Path(temporary_home.name) / 'demo-mouse')
+    api.hostname.determine = lambda: device.hostname
+
+    def change_hostname(value):
+        device.hostname = value
+        device.service_event(f'Simulated hostname change to {value}')
+
+    api.hostname.change = change_hostname
+    api.local_system.shutdown = lambda: device.service_event('Simulated appliance shutdown; demo stays online')
+    api.local_system.restart = lambda: device.service_event('Simulated appliance restart; demo stays online')
+    api.video_service.restart = lambda: device.service_event('Simulated video service restart')
+    api.network.determine_wifi_settings = lambda: api.network.WifiSettings(*device.wifi, None)
+
+    def enable_wifi(settings):
+        device.wifi = (settings.country_code, settings.ssid)
+        device.service_event('Simulated Wi-Fi settings saved; password discarded')
+
+    def disable_wifi():
+        device.wifi = (None, None)
+        device.service_event('Simulated Wi-Fi settings removed')
+
+    api.network.enable_wifi = enable_wifi
+    api.network.disable_wifi = disable_wifi
+    api.network.determine_network_status = lambda: [
+        api.network.InterfaceStatus('eth0', True, '192.0.2.17', '02-00-00-00-00-17')]
+    api.version.local_version = lambda: device.version
+    api.version.latest_version = lambda: api.version.UpdateInfo(
+        '0.0.1-webmcp-demo', 'automatic', None)
+
+    def start_update():
+        device.updated_at = time.monotonic()
+        device.service_event('Simulated update started; no files downloaded')
+
+    def update_status():
+        if device.updated_at is None:
+            return api.update.status.Status.NOT_RUNNING, None
+        if time.monotonic() - device.updated_at < 2:
+            return api.update.status.Status.IN_PROGRESS, None
+        device.version = '0.0.1-webmcp-demo'
+        return api.update.status.Status.DONE, None
+
+    api.update.launcher.start_async = start_update
+    api.update.status.get = update_status
+    api.debug_logs.collect = lambda: '\n'.join([
+        DEMO_LABEL, 'Only sample service events follow; no host diagnostics read.',
+        *device.state()['serviceEvents'],
+    ])
+    update_logs.read = lambda: api.debug_logs.collect()
+
+    @views.require_authentication
+    def stream():
+        response = flask.Response(device.svg(), mimetype='image/svg+xml')
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-TinyPilot-Demo'] = 'true'
+        return response
+
+    app.view_functions['views.stream_get'] = stream
+    app.add_url_rule('/snapshot', 'webmcp_demo_snapshot', stream)
+
+    @app.get('/webmcp-demo/state')
+    @views.require_authentication
+    def demo_state():
+        return flask.jsonify(device.state())
+
+    @app.post('/webmcp-demo/reset')
+    @views.require_authentication
+    def demo_reset():
+        device.reset()
+        return flask.jsonify({'demo': True, 'reset': True})
+
+    @app.context_processor
+    def demo_context():
+        return {'WEBMCP_DEMO': True, 'is_webmcp_demo': True}
+
+    @flask.before_render_template.connect_via(app)
+    def demo_video_renderer(_sender, template, context, **_extra):
+        # Explicit view context wins over context processors, so set this at
+        # render time. H.264 settings remain stored; the demo has no encoder.
+        if template.name == 'index.html':
+            context['use_webrtc_remote_screen'] = False
+
+    @app.after_request
+    def label_demo(response):
+        response.headers['X-TinyPilot-Demo'] = 'true'
+        # Existing browser controls (for example log sharing) also stay local.
+        response.headers['Content-Security-Policy'] = "connect-src 'self'; object-src 'none'; base-uri 'self'"
+        if response.mimetype == 'text/html' and not response.direct_passthrough:
+            source = response.get_data(as_text=True)
+            source = source.replace('</head>',
+                '<script>window.TINYPILOT_WEBMCP_DEMO = true;</script></head>')
+            source = source.replace('</body>',
+                '<script type="module" src="/js/webmcp-demo.js"></script></body>')
+            response.set_data(source)
+        return response
+
+    with app.app_context():
+        api.db.settings.Settings().set_requires_https(False)
+        if username:
+            username = importlib.import_module('request_parsers.field_parsers.username').parse_username(username)
+            password = importlib.import_module('request_parsers.field_parsers.password').parse_password(password)
+            api.auth.register(username, password, api.auth.Role.ADMIN)
+    socketio = main.socket_api.socketio
+    socketio.init_app(app, async_mode='threading')
+    sys.addaudithook(_deny_external_effects)
+    return app, socketio, device
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--host', default='127.0.0.1', help='Bind host (default: localhost only)')
+    parser.add_argument('--port', type=int, default=8000)
+    parser.add_argument('--username', help='Seed a demo administrator account')
+    parser.add_argument('--password-env', default='TINYPILOT_DEMO_PASSWORD',
+                        help='Environment variable containing the seeded account password')
+    parser.add_argument('--self-test', action='store_true',
+                        help='Check real routes, CSRF, auth, simulated input, and isolation; do not listen')
+    args = parser.parse_args()
+    if not 1 <= args.port <= 65535:
+        parser.error('--port must be between 1 and 65535')
+    if args.self_test:
+        self_test()
+        return
+    password = os.environ.get(args.password_env)
+    if args.username and not password:
+        parser.error('A seeded account requires a password in --password-env')
+    if args.host not in {'127.0.0.1', 'localhost', '::1'} and not args.username:
+        parser.error('External demo binds require --username and a password environment variable')
+    app, socketio, _device = create_demo_app(args.username, password)
+    print(f'\n{DEMO_LABEL}\nOpen http://{args.host}:{args.port}\n'
+          'All device state is temporary; stop with Ctrl+C.\n', flush=True)
+    socketio.run(app, host=args.host, port=args.port, debug=True,
+                 use_reloader=False, use_debugger=False,
+                 allow_unsafe_werkzeug=True)
+
+
+def self_test():
+    """Exercise consequential behavior without starting a server or hardware."""
+    app, socketio, device = create_demo_app()
+    client = app.test_client()
+    page = client.get('/')
+    assert page.status_code == 200
+    assert b'TINYPILOT_WEBMCP_DEMO = true' in page.data
+    token = re.search(r'name="csrf-token" content="([^"]+)"',
+                      page.get_data(as_text=True)).group(1)
+    headers = {'X-CSRFToken': token}
+    payload = {'text': '<script>demo</script>\n', 'language': 'en-US'}
+    assert client.post('/api/paste', json=payload).status_code == 403
+    assert device.text == ''
+    assert client.post('/api/paste', json=payload, headers=headers).status_code == 200
+    deadline = time.monotonic() + 2
+    while device.text != payload['text'] and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert device.text == payload['text']
+    frame = client.get('/snapshot')
+    assert frame.mimetype == 'image/svg+xml'
+    assert b'&lt;script&gt;demo&lt;/script&gt;' in frame.data
+    assert b'<script>demo</script>' not in frame.data
+    assert client.get('/stream').status_code == 200
+    socket = socketio.test_client(app, flask_test_client=client)
+    assert socket.is_connected()
+    assert socket.emit('keystroke', {'code': 'KeyA', 'ctrlLeft': True}, callback=True)['success']
+    assert socket.emit('keystroke', {'code': 'Backspace'}, callback=True)['success']
+    assert device.text == ''
+    assert socket.emit('keystroke', {'code': 'KeyH', 'shiftLeft': True}, callback=True)['success']
+    assert socket.emit('keystroke', {'code': 'KeyI'}, callback=True)['success']
+    assert device.text == 'Hi'
+    assert socket.emit('keystroke', {'code': 'KeyS', 'ctrlLeft': True}, callback=True)['success']
+    assert device.saved
+    pointer = {'buttons': 1, 'relativeX': 0.1, 'relativeY': 0.38,
+               'verticalWheelDelta': 0, 'horizontalWheelDelta': 0}
+    assert socket.emit('mouse-event', pointer, callback=True)['success']
+    assert device.active_tab == 'input'
+    assert socket.emit('mouse-event', dict(pointer, relativeX=2), callback=True) == {'success': False}
+    assert client.put('/api/hostname', json={'hostname': 'invalid host'}, headers=headers).status_code == 400
+    assert client.put('/api/hostname', json={'hostname': 'demo-renamed'}, headers=headers).status_code == 200
+    assert device.hostname == 'demo-renamed'
+    wifi = {'countryCode': 'US', 'ssid': 'Sample WiFi', 'psk': 'demo-only-password'}
+    assert client.put('/api/network/settings/wifi', json=wifi, headers=headers).status_code == 200
+    assert device.wifi == ('US', 'Sample WiFi')
+    assert wifi['psk'] not in str(device.state())
+    assert client.delete('/api/network/settings/wifi', headers=headers).status_code == 200
+    assert device.wifi == (None, None)
+    for endpoint in ['/api/restart', '/api/shutdown', '/api/settings/video/apply']:
+        assert client.post(endpoint, headers=headers).status_code == 200
+    assert client.put('/api/update', headers=headers).status_code == 200
+    assert client.get('/api/update').json['status'] == 'IN_PROGRESS'
+    device.updated_at -= 3
+    assert client.get('/api/update').json['status'] == 'DONE'
+    assert 'Simulated appliance restart' in client.get('/api/debugLogs').get_data(as_text=True)
+    account = {'username': 'demo-admin', 'password': 'demo-only-password', 'role': 'ADMIN'}
+    assert client.post('/api/user', json=account, headers=headers).status_code == 200
+    stranger = app.test_client()
+    assert stranger.get('/api/users').status_code == 401
+    assert stranger.get('/snapshot').status_code == 302
+    assert not socketio.test_client(app, flask_test_client=stranger).is_connected()
+    assert client.post('/api/logout', headers=headers).status_code == 200
+    assert client.get('/api/users').status_code == 401
+    login_page = client.get('/login').get_data(as_text=True)
+    login_token = re.search(r'name="csrf-token" content="([^"]+)"', login_page).group(1)
+    assert client.post('/api/auth', json={key: account[key] for key in ['username', 'password']},
+                       headers={'X-CSRFToken': login_token}).status_code == 200
+    assert client.get('/api/users').status_code == 200
+    for event in ['subprocess.Popen', 'os.system', 'socket.connect']:
+        try:
+            sys.audit(event, None)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(f'Isolation failed for {event}')
+    socket.disconnect()
+    print('PASS: real routes, CSRF, auth, SVG escaping, keyboard/mouse input, '
+          'safe service simulations, and external-effect fence')
+
+
+if __name__ == '__main__':
+    main()

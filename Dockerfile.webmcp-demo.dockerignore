@@ -1,0 +1,11 @@
+.git
+.playwright-cli
+venv
+node_modules
+.env
+.env.*
+docs/demo-video/output
+e2e-results
+playwright-report
+__pycache__
+*.pyc

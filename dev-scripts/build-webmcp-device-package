@@ -1,0 +1,435 @@
+#!/usr/bin/env python3
+"""Build a reviewable WebMCP package for the audited TinyPilot Pro 3.0.2 UI.
+
+The source directory must contain the read-only files captured from the device.
+This script never contacts or changes a device. It verifies those inputs against
+the audited hashes, copies originals into the pack, and writes patched copies to
+the pack's package directory. The generated installer requires an explicit
+confirmation token, verifies the target again, and creates its own backup.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import pathlib
+import re
+import shutil
+import stat
+import sys
+import tempfile
+
+
+DEFAULT_SOURCE = pathlib.Path('/private/tmp/tinypilot-live-audit')
+DEFAULT_OUTPUT = pathlib.Path('/private/tmp/tinypilot-webmcp-device-package')
+AUDITED_FILES = {
+    'app/static/js/app.js':
+        '110be7fba6c4dd823020373d0bbb7b36a2ace687668c14aa6e28381f5cfd2057',
+    'app/static/js/controllers.js':
+        '42ced435b3bcf00974a591c064700956211740768234079762485f82403ae3ff',
+    'app/templates/index.html':
+        '4467387ca9d9a0c533e34cdcc3394fc9a2525a3c88bb697d9c62018b7df7b0bc',
+    'app/templates/custom-elements/remote-screen.html':
+        '0b9c8a22fec5de77a19e61e3aa6daf3da24791759102f8f38e0dce7b6668fa89',
+    'etc/nginx/conf.d/tinypilot.conf':
+        'd65e5ef93d5d2c95e0b85d995daf1e52e5de4bf8b83c2405437a8de417a7034b',
+}
+ADDED_FILES = (
+    'app/static/js/webmcp.js',
+    'app/static/js/webmcp-tools.js',
+    'app/static/js/webmcp-pro-tools.js',
+    'app/static/js/webmcp-serial.js',
+)
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def replace_once(text, old, new, label):
+    count = text.count(old)
+    if count != 1:
+        raise ValueError(f'{label}: expected one anchor, found {count}')
+    return text.replace(old, new, 1)
+
+
+def patch_app(text):
+    text = replace_once(
+        text,
+        'import { logout } from "./controllers.js";\n',
+        'import { logout } from "./controllers.js";\n'
+        'import { initializeWebMcp } from "./webmcp.js";\n',
+        'app import')
+    return text.rstrip() + """
+
+initializeWebMcp({ socket }).catch((error) => {
+  console.error("Failed to initialize TinyPilot site tools", error);
+});
+"""
+
+
+def patch_index(text):
+    return replace_once(
+        text,
+        '    {% include "components/debug-mode.html" %}\n'
+        '    <script src="/third-party/socket.io/4.7.1/socket.io.min.js"></script>',
+        '    {% include "components/debug-mode.html" %}\n'
+        '    <script id="webmcp-context" type="application/json">\n'
+        "      {{ {'isAdmin': is_admin, 'username': current_username, 'isDemo': false, 'isPro': true, 'serialToolsEnabled': true} | tojson }}\n"
+        '    </script>\n'
+        '    <script src="/third-party/socket.io/4.7.1/socket.io.min.js"></script>',
+        'index context')
+
+
+def patch_remote_screen(text):
+    anchor = ('            const screenWrapper =\n'
+              '              this.shadowRoot.querySelector(".screen-wrapper");\n')
+    return replace_once(
+        text, anchor,
+        anchor +
+        '            // A WebMCP call may already have entered fullscreen.\n'
+        '            // Avoid consuming user activation again when applying view styles.\n'
+        '            if (this.shadowRoot.fullscreenElement === screenWrapper) return;\n',
+        'remote fullscreen guard')
+
+
+def patch_nginx(text):
+    anchor = ('    location /ttyd/ws {\n'
+              '        proxy_pass http://ttyd;\n')
+    replacement = ('    location /ttyd/ws {\n'
+                   '        auth_request     /auth;\n'
+                   '        auth_request_set $auth_status $upstream_status;\n'
+                   '        proxy_pass http://ttyd;\n')
+    return replace_once(text, anchor, replacement,
+                        'nginx ttyd websocket authentication')
+
+
+def patch_controller_signatures(text):
+    pattern = re.compile(
+        r'export async function (?P<name>[A-Za-z0-9_]+)\((?P<params>.*?)\) \{',
+        re.DOTALL)
+
+    def add_signal(match):
+        if match.group('name') == 'checkStatus':
+            return match.group(0)
+        params = match.group('params')
+        if not params:
+            params = '{ signal } = {}'
+        elif '\n' in params:
+            params = params.rstrip() + ',\n  { signal } = {}\n'
+        else:
+            params += ', { signal } = {}'
+        return f"export async function {match.group('name')}({params}) {{"
+
+    result, count = pattern.subn(add_signal, text)
+    if count != 66:
+        raise ValueError(
+            f'controllers: expected 66 exported request functions, found {count}')
+    return result
+
+
+def patch_controllers(text):
+    old_shutdown = """      // A 502 usually means that nginx shutdown before it could process the
+      // response. Treat this as success.
+      if (httpResponse.status === 502) {
+        return;
+      }
+      return processJsonResponse(httpResponse);
+    })
+    .catch((error) => {
+      // Depending on timing, the server may not respond to the shutdown
+      // request because it's shutting down. If we get a NetworkError, assume
+      // the shutdown succeeded.
+      if (error.message.indexOf("NetworkError") >= 0) {
+        return;
+      }
+"""
+    new_shutdown = """      // A 502 usually means that nginx shutdown before it could process the
+      // response. The request may have succeeded, but we did not receive an
+      // application acknowledgment.
+      if (httpResponse.status === 502) {
+        return { acknowledgment: "uncertain" };
+      }
+      return processJsonResponse(httpResponse).then(() => ({
+        acknowledgment: "confirmed",
+      }));
+    })
+    .catch((error) => {
+      // Depending on timing, the server may not respond to the shutdown
+      // request because it's shutting down. If we get a NetworkError, the
+      // operation may have started, but do not claim an acknowledgment.
+      if (error.message.indexOf("NetworkError") >= 0) {
+        return { acknowledgment: "uncertain" };
+      }
+"""
+    text = replace_once(text, old_shutdown, new_shutdown,
+                        'controller shutdown receipt')
+    old_mjpeg = """    .then((response) => response.ok)
+    .catch(() => false);
+"""
+    new_mjpeg = """    .then((response) => response.ok)
+    .catch((error) => {
+      if (error.name === "AbortError") throw error;
+      return false;
+    });
+"""
+    text = replace_once(text, old_mjpeg, new_mjpeg,
+                        'controller MJPEG cancellation')
+    text = patch_controller_signatures(text)
+    existing_signal = '    redirect: "error",\n    signal,'
+    if text.count(existing_signal) != 1:
+        raise ValueError('controllers: existing checkStatus signal anchor changed')
+    sentinel = '    redirect: "error",\n    __WEBMCP_EXISTING_SIGNAL__,'
+    text = text.replace(existing_signal, sentinel, 1)
+    text = text.replace('    redirect: "error",',
+                        '    redirect: "error",\n    signal,')
+    text = text.replace(sentinel, existing_signal, 1)
+    text = replace_once(text, 'return fetch("/api/users")',
+                        'return fetch("/api/users", { signal })',
+                        'controller users signal')
+    if text.count('    signal,') != 65 or text.count('{ signal })') != 1:
+        raise ValueError('controllers: not every audited fetch received a signal')
+    return text
+
+
+def write_text(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding='utf-8')
+
+
+def copy_file(source, destination):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+
+def installer_source(rollback=False):
+    mode = 'RESTORE' if rollback else 'INSTALL'
+    operation = 'rollback' if rollback else 'install'
+    return f'''#!/usr/bin/env python3
+"""Explicit, hash-checked {operation} helper generated with the package."""
+import argparse
+import hashlib
+import json
+import os
+import pathlib
+import shutil
+import stat
+import subprocess
+import tempfile
+
+PACK = pathlib.Path(__file__).resolve().parent
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+def atomic_copy(source, target, metadata):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix='.webmcp-', dir=target.parent)
+    os.close(descriptor)
+    temporary = pathlib.Path(temporary)
+    try:
+        shutil.copyfile(source, temporary)
+        os.chmod(temporary, metadata['mode'])
+        if hasattr(os, 'chown'):
+            os.chown(temporary, metadata['uid'], metadata['gid'])
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--target-root', type=pathlib.Path, required=True)
+parser.add_argument('--nginx-config', type=pathlib.Path, required=True)
+parser.add_argument('--backup-dir', type=pathlib.Path, required=True)
+parser.add_argument('--confirm', required=True, choices=['{mode}'])
+args = parser.parse_args()
+manifest = json.loads((PACK / 'manifest.json').read_text())
+root = args.target_root.resolve()
+nginx_config = args.nginx_config.resolve()
+backup = args.backup_dir.resolve()
+if root == pathlib.Path('/'):
+    raise SystemExit('Refusing target root /; pass /opt/tinypilot or its equivalent.')
+
+def target_for(entry):
+    if entry.get('destination') == 'nginx-config':
+        return nginx_config
+    return root / entry['path']
+
+def validate_nginx():
+    command = ['nginx', '-t'] if os.geteuid() == 0 else ['sudo', 'nginx', '-t']
+    subprocess.run(command, check=True)
+
+if {str(rollback)}:
+    backup_manifest = json.loads((backup / 'backup-manifest.json').read_text())
+    for entry in manifest['modified'] + manifest['added']:
+        target = target_for(entry)
+        if not target.is_file() or target.is_symlink():
+            raise SystemExit(f"Installed file missing or unsafe: {{target}}")
+        if digest(target) != entry['packageSha256']:
+            raise SystemExit(f"Installed file changed; refusing rollback: {{target}}")
+    for entry in manifest['modified']:
+        saved = backup / entry['path']
+        if digest(saved) != entry['originalSha256']:
+            raise SystemExit(f"Backup hash mismatch: {{saved}}")
+    for entry in manifest['modified']:
+        record = backup_manifest[entry['path']]
+        atomic_copy(backup / entry['path'], target_for(entry), record)
+    for entry in manifest['added']:
+        target_for(entry).unlink()
+    validate_nginx()
+    print('Package rolled back. Restart the TinyPilot service after review.')
+else:
+    if backup.exists():
+        raise SystemExit(f"Backup directory already exists: {{backup}}")
+    for entry in manifest['modified']:
+        target = target_for(entry)
+        if not target.is_file() or target.is_symlink():
+            raise SystemExit(f"Target file missing or unsafe: {{target}}")
+        if digest(target) != entry['originalSha256']:
+            raise SystemExit(f"Target differs from audited source: {{target}}")
+    for entry in manifest['added']:
+        target = target_for(entry)
+        if target.exists() or target.is_symlink():
+            raise SystemExit(f"Refusing to replace added path: {{target}}")
+    backup.mkdir(parents=True)
+    metadata = {{}}
+    for entry in manifest['modified']:
+        target = target_for(entry)
+        details = target.stat()
+        metadata[entry['path']] = {{'uid': details.st_uid, 'gid': details.st_gid,
+                                    'mode': stat.S_IMODE(details.st_mode)}}
+        saved = backup / entry['path']
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(target, saved)
+    (backup / 'backup-manifest.json').write_text(json.dumps(metadata, indent=2) + '\\n')
+    installed = []
+    try:
+        for entry in manifest['modified']:
+            target = target_for(entry)
+            atomic_copy(PACK / 'package' / entry['path'], target,
+                        metadata[entry['path']])
+            installed.append(('modified', entry))
+        for entry in manifest['added']:
+            target = target_for(entry)
+            parent = target.parent.stat()
+            atomic_copy(PACK / 'package' / entry['path'], target,
+                        {{'uid': parent.st_uid, 'gid': parent.st_gid, 'mode': 0o644}})
+            installed.append(('added', entry))
+        validate_nginx()
+    except Exception:
+        for kind, entry in reversed(installed):
+            target = target_for(entry)
+            if kind == 'added':
+                target.unlink(missing_ok=True)
+            else:
+                atomic_copy(backup / entry['path'], target,
+                            metadata[entry['path']])
+        raise
+    print(f"Package installed with backup at {{backup}}.")
+    print('No service was restarted. Review the files, then restart TinyPilot separately.')
+'''
+
+
+def build(source_root, output, workspace):
+    source_root = source_root.resolve()
+    output = output.resolve()
+    if output.exists():
+        raise FileExistsError(
+            f'output already exists; choose a new path or remove it: {output}')
+    for relative, expected in AUDITED_FILES.items():
+        source = source_root / relative
+        if not source.is_file() or source.is_symlink():
+            raise FileNotFoundError(f'missing or unsafe audited file: {source}')
+        actual = sha256(source)
+        if actual != expected:
+            raise ValueError(
+                f'audited input changed: {relative}\nexpected {expected}\nactual   {actual}')
+    for relative in ADDED_FILES:
+        if not (workspace / relative).is_file():
+            raise FileNotFoundError(f'missing WebMCP addition: {workspace / relative}')
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = pathlib.Path(
+        tempfile.mkdtemp(prefix=f'.{output.name}-', dir=output.parent))
+    try:
+        for relative in AUDITED_FILES:
+            copy_file(source_root / relative, staging / 'originals' / relative)
+        patches = {
+            'app/static/js/app.js': patch_app,
+            'app/static/js/controllers.js': patch_controllers,
+            'app/templates/index.html': patch_index,
+            'app/templates/custom-elements/remote-screen.html':
+                patch_remote_screen,
+            'etc/nginx/conf.d/tinypilot.conf': patch_nginx,
+        }
+        modified = []
+        for relative, patcher in patches.items():
+            source = source_root / relative
+            destination = staging / 'package' / relative
+            write_text(destination, patcher(source.read_text(encoding='utf-8')))
+            modified.append({
+                'path': relative,
+                'originalSha256': AUDITED_FILES[relative],
+                'packageSha256': sha256(destination),
+                **({
+                    'destination': 'nginx-config'
+                } if relative == 'etc/nginx/conf.d/tinypilot.conf' else {}),
+            })
+        added = []
+        for relative in ADDED_FILES:
+            destination = staging / 'package' / relative
+            copy_file(workspace / relative, destination)
+            added.append({
+                'path': relative,
+                'packageSha256': sha256(destination),
+            })
+        manifest = {
+            'kind': 'tinypilot-webmcp-device-package',
+            'target': 'audited TinyPilot Pro 3.0.2 dashboard files',
+            'modified': modified,
+            'added': added,
+        }
+        write_text(staging / 'manifest.json',
+                   json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+        write_text(
+            staging / 'README.txt',
+            'This pack was built from hash-verified, read-only device files.\n'
+            'originals/ contains the audited inputs; package/ contains candidates.\n'
+            'Building this pack did not contact or modify a TinyPilot device.\n\n'
+            'Before any deployment, review the originals-to-package diff. The apply\n'
+            'helper requires --confirm INSTALL, verifies the live hashes, creates a\n'
+            'runtime backup, and does not restart services. rollback-package requires\n'
+            '--confirm RESTORE and refuses to overwrite files changed after install.\n')
+        for name, rollback in (('apply-package', False),
+                               ('rollback-package', True)):
+            helper = staging / name
+            write_text(helper, installer_source(rollback))
+            helper.chmod(helper.stat().st_mode | stat.S_IXUSR)
+        os.replace(staging, output)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return output
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source-root', type=pathlib.Path,
+                        default=DEFAULT_SOURCE)
+    parser.add_argument('--output', type=pathlib.Path, default=DEFAULT_OUTPUT)
+    args = parser.parse_args()
+    workspace = pathlib.Path(__file__).resolve().parent.parent
+    output = build(args.source_root, args.output, workspace)
+    print(f'Built reviewable package: {output}')
+    print(f'Review with: diff -ru {output / "originals"} {output / "package"}')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (FileExistsError, FileNotFoundError, ValueError) as error:
+        print(f'error: {error}', file=sys.stderr)
+        raise SystemExit(1) from error

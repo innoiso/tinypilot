@@ -4,6 +4,7 @@ import { sendKeystroke } from "./keystrokes.js";
 import * as settings from "./settings.js";
 import { OverlayTracker } from "./overlays.js";
 import { getUsers, logout } from "./controllers.js";
+import { initializeWebMcp } from "./webmcp.js";
 
 // Suppress ESLint warnings about undefined variables.
 // `io` is defined by the Socket.IO library, which is globally available on the
@@ -608,3 +609,7 @@ socket.on("disconnect", onSocketDisconnect);
 
 // Initialize the remote screen content; use MJPEG by default.
 document.getElementById("remote-screen").enableMjpeg();
+
+initializeWebMcp({ socket }).catch((error) => {
+  console.error("Failed to initialize TinyPilot site tools", error);
+});
