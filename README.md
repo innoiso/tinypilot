@@ -1,14 +1,43 @@
 # TinyPilot
 
-## WebMCP challenge extension
+## OpenAI WebMCP Challenge entry
 
-This branch adds native browser tools for TinyPilot's dashboard. Tools register
-with document.modelContext during initial page startup and reuse the dashboard's
-authenticated controllers and keyboard/mouse connection. Additional Pro tools register only when the installed
-edition supplies their controllers.
+**TinyPilot WebMCP turns a browser-based KVM into an agent-accessible computer
+console.** An agent can see the remote display, use the keyboard and mouse, and
+operate TinyPilot settings through the same authenticated dashboard a person is
+watching. The attached computer needs no agent runtime, browser extension, or
+custom software: TinyPilot remains the only connection to it.
 
-Start with [WebMCP setup and complete capability mapping](docs/WEBMCP.md),
-the [challenge entry package](docs/WEBMCP-CHALLENGE.md).
+**[Open the live judge demo](https://tinypilot-webmcp-demo.innoiso.workers.dev/)**
+— credentials are supplied privately with the competition submission. The demo
+runs the real TinyPilot Community dashboard against a lightweight,
+session-private TinyDesk computer with Notes, Calculator, Minesweeper, and Input
+Activity. It is safe to explore and does not connect to physical hardware or a
+shared operating system.
+
+### What the extension adds
+
+- Native tools registered from the top-level page with
+  `document.modelContext.registerTool()`.
+- Screen capture plus keyboard, pointer, drag, scroll, and shortcut control of
+  the attached computer.
+- TinyPilot view, video, network, account, security, diagnostics, update, and
+  appliance-power operations.
+- Optional Pro capability discovery for installed controllers without
+  redistributing TinyPilot Pro code.
+- Closed input schemas, cancellation, permission filtering, write-only secret
+  fields, and logs that omit tool arguments and results.
+
+The tools reuse TinyPilot's existing authenticated controllers and Socket.IO
+input path. There is no separate MCP server or agent panel, and browsers without
+WebMCP continue to receive the ordinary TinyPilot dashboard.
+
+See the [complete capability mapping and architecture](docs/WEBMCP.md), the
+[challenge entry package](docs/WEBMCP-CHALLENGE.md), and the
+[challenge changes from upstream](https://github.com/innoiso/tinypilot/compare/5f34d8a...codex/tinypilot-webmcp-submission).
+
+### Run the isolated demo locally
+
 The isolated demo runs the real application with simulated hardware:
 
 ```bash
@@ -21,8 +50,8 @@ Open `http://127.0.0.1:8011` in a WebMCP-enabled browser. Each browser session
 gets a private in-memory micro desktop rendered as SVG, with no VM or operating
 system per user. The visible banner identifies the simulation. For an
 HTTPS-hosted demo, build `Dockerfile.webmcp-demo`, supply
-`TINYPILOT_DEMO_PASSWORD` as a host secret, and proxy port 8000. The seeded account
-is `judge`. Never connect this public demo container to a physical KVM.
+`TINYPILOT_DEMO_PASSWORD` as a host secret, and proxy port 8000. The seeded
+account is `judge`. Never connect this public demo container to a physical KVM.
 
 This extension preserves TinyPilot's upstream license and credits. The sections
 below document the original TinyPilot project.
