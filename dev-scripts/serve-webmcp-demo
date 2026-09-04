@@ -351,8 +351,17 @@ def create_demo_app(username=None, password=None):
     temporary_home = tempfile.TemporaryDirectory(
         prefix='tinypilot-webmcp-demo-')
     # macOS temp roots may be symlinks; TinyPilot requires a canonical home.
-    os.environ['TINYPILOT_HOME_DIR'] = str(
-        pathlib.Path(temporary_home.name).resolve())
+    home_dir = pathlib.Path(temporary_home.name).resolve()
+    os.environ['TINYPILOT_HOME_DIR'] = str(home_dir)
+    flask_secret = os.environ.get('TINYPILOT_DEMO_FLASK_SECRET')
+    if flask_secret:
+        flask_secret_bytes = flask_secret.encode('utf-8')
+        if len(flask_secret_bytes) != 32:
+            raise RuntimeError(
+                'TINYPILOT_DEMO_FLASK_SECRET must be exactly 32 bytes')
+        secret_path = home_dir / '.flask-secret-key'
+        secret_path.write_bytes(flask_secret_bytes)
+        secret_path.chmod(0o600)
     os.environ['DEBUG'] = '1'
     os.environ['USE_RELOADER'] = '0'
     # This demo deliberately uses Socket.IO's native threading mode. Loading
@@ -744,7 +753,9 @@ def main():
 def self_test():
     """Exercise consequential behavior without starting a server or hardware."""
     demo_password = 'correct horse battery staple'
+    os.environ['TINYPILOT_DEMO_FLASK_SECRET'] = 's' * 32
     app, socketio, devices = create_demo_app('judge', demo_password)
+    assert app.config['SECRET_KEY'] == b's' * 32
 
     def login(client):
         login_page = client.get('/login').get_data(as_text=True)

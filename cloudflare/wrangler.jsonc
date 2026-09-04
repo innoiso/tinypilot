@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tinypilot-webmcp-demo",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-03",
+  "workers_dev": true,
+  "preview_urls": false,
+  "containers": [
+    {
+      "class_name": "TinyPilotContainer",
+      "image": "../Dockerfile.webmcp-demo",
+      "image_build_context": "..",
+      "instance_type": "lite",
+      "max_instances": 1,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TINYPILOT_CONTAINER",
+        "class_name": "TinyPilotContainer",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TinyPilotContainer"],
+    },
+  ],
+  "observability": {
+    "enabled": true,
+  },
+}

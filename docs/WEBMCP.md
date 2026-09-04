@@ -340,6 +340,24 @@ browser access. Run one application replica because the demo session state is
 process-local. This launcher is an isolated demonstration server, not the
 production TinyPilot deployment procedure.
 
+### Cloudflare Containers
+
+The `cloudflare/` deployment runs the same demo image as one `lite` Cloudflare
+Container behind a Worker. It forwards WebSockets, sleeps after ten inactive
+minutes, and uses the provider's HTTPS `workers.dev` hostname. Configure
+`TINYPILOT_DEMO_PASSWORD` and a 32-byte `TINYPILOT_DEMO_FLASK_SECRET` as Worker
+secrets before opening the public URL. The stable Flask secret preserves signed
+login cookies if the ephemeral container restarts; TinyDesk contents remain
+deliberately temporary.
+
+```sh
+cd cloudflare
+npm ci
+npx wrangler secret put TINYPILOT_DEMO_PASSWORD
+npx wrangler secret put TINYPILOT_DEMO_FLASK_SECRET
+npm run deploy
+```
+
 ## Verification
 
 Run the focused integration and contract checks:
