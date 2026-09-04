@@ -103,6 +103,15 @@ class DemoDevice:
             self.key_count = 0
             self.mouse_count = 0
             self.active_tab = 'notes'
+            self.calculator_display = '0'
+            self.calculator_accumulator = None
+            self.calculator_operator = None
+            self.calculator_new_entry = True
+            self.snake = [(8, 6), (7, 6), (6, 6)]
+            self.snake_food = (13, 6)
+            self.snake_direction = (1, 0)
+            self.snake_score = 0
+            self.snake_game_over = False
             self.last_input = 'Ready for keyboard and mouse input'
             self.saved = False
             self.revision = 0
@@ -123,6 +132,136 @@ class DemoDevice:
         self.cursor += len(value)
         self.saved = False
 
+    @staticmethod
+    def _format_calculator(value):
+        if abs(value) > 999999999 or (value and abs(value) < 0.000001):
+            return f'{value:.6g}'
+        if value == int(value):
+            return str(int(value))
+        return f'{value:.8f}'.rstrip('0').rstrip('.')
+
+    def _calculate(self):
+        if self.calculator_operator is None or self.calculator_accumulator is None:
+            return
+        try:
+            right = float(self.calculator_display)
+            left = self.calculator_accumulator
+            if self.calculator_operator == '+':
+                result = left + right
+            elif self.calculator_operator == '-':
+                result = left - right
+            elif self.calculator_operator == '*':
+                result = left * right
+            else:
+                result = left / right
+            self.calculator_display = self._format_calculator(result)
+            self.last_input = 'Calculator result ready'
+        except (ValueError, ZeroDivisionError, OverflowError):
+            self.calculator_display = 'Error'
+            self.last_input = 'Calculator cannot complete that operation'
+        self.calculator_accumulator = None
+        self.calculator_operator = None
+        self.calculator_new_entry = True
+
+    def _calculator_character(self, character):
+        if character.isdigit():
+            if self.calculator_new_entry or self.calculator_display == 'Error':
+                self.calculator_display = character
+            elif len(self.calculator_display) < 12:
+                self.calculator_display += character
+            self.calculator_new_entry = False
+            self.last_input = f'Calculator entered {character}'
+        elif character == '.':
+            if self.calculator_new_entry or self.calculator_display == 'Error':
+                self.calculator_display = '0.'
+            elif '.' not in self.calculator_display:
+                self.calculator_display += '.'
+            self.calculator_new_entry = False
+        elif character in '+-*/':
+            if self.calculator_operator is not None and not self.calculator_new_entry:
+                self._calculate()
+            try:
+                self.calculator_accumulator = float(self.calculator_display)
+            except ValueError:
+                self.calculator_accumulator = 0.0
+            self.calculator_operator = character
+            self.calculator_new_entry = True
+            self.last_input = f'Calculator operator {character}'
+
+    def _calculator_action(self, action):
+        if action == 'clear':
+            self.calculator_display = '0'
+            self.calculator_accumulator = None
+            self.calculator_operator = None
+            self.calculator_new_entry = True
+            self.last_input = 'Calculator cleared'
+        elif action == 'backspace':
+            if not self.calculator_new_entry:
+                self.calculator_display = self.calculator_display[:-1] or '0'
+            self.last_input = 'Calculator deleted one digit'
+        elif action == 'equals':
+            self._calculate()
+        else:
+            self._calculator_character(action)
+
+    def _calculator_click(self, pixel_x, pixel_y):
+        actions = [
+            'clear', '/', '*', '-', '7', '8', '9', '+', '4', '5', '6',
+            'equals', '1', '2', '3', '0', '.', 'backspace'
+        ]
+        if 273 <= pixel_y < 526:
+            row = int((pixel_y - 273) / 67)
+            column = int((pixel_x - 370) / 140)
+            index = row * 4 + column
+            if (0 <= column < 4 and index < 16 and
+                    pixel_x - (370 + column * 140) <= 120 and
+                    pixel_y - (273 + row * 67) <= 52):
+                self._calculator_action(actions[index])
+        elif 541 <= pixel_y <= 593:
+            column = int((pixel_x - 370) / 186)
+            index = 16 + column
+            if (0 <= column < 3 and
+                    pixel_x - (370 + column * 186) <= 166):
+                self._calculator_action(actions[index])
+
+    def _reset_snake(self):
+        self.snake = [(8, 6), (7, 6), (6, 6)]
+        self.snake_food = (13, 6)
+        self.snake_direction = (1, 0)
+        self.snake_score = 0
+        self.snake_game_over = False
+        self.last_input = 'Snake ready — use arrow keys'
+
+    def _move_snake(self, direction=None):
+        if self.snake_game_over:
+            self._reset_snake()
+            return
+        if direction:
+            opposite = (-self.snake_direction[0], -self.snake_direction[1])
+            if direction != opposite:
+                self.snake_direction = direction
+        head_x, head_y = self.snake[0]
+        next_head = (head_x + self.snake_direction[0],
+                     head_y + self.snake_direction[1])
+        if (next_head[0] < 0 or next_head[0] >= 18 or next_head[1] < 0 or
+                next_head[1] >= 12 or next_head in self.snake[:-1]):
+            self.snake_game_over = True
+            self.last_input = 'Snake game over — press an arrow to restart'
+            return
+        self.snake.insert(0, next_head)
+        if next_head == self.snake_food:
+            self.snake_score += 1
+            candidate = ((3 + self.snake_score * 5) % 18,
+                         (2 + self.snake_score * 7) % 12)
+            while candidate in self.snake:
+                candidate = ((candidate[0] + 3) % 18,
+                             (candidate[1] + 1) % 12)
+            self.snake_food = candidate
+            self.last_input = f'Snake score {self.snake_score}'
+        else:
+            self.snake.pop()
+            self.last_input = 'Snake moved one tile'
+
     def send_key(self, _path, key):
         with self.lock:
             code, modifier = key.keycode, key.modifier
@@ -138,10 +277,10 @@ class DemoDevice:
             shift = modifier & (hid.MODIFIER_LEFT_SHIFT |
                                 hid.MODIFIER_RIGHT_SHIFT)
             if (ctrl or meta) and not alt:
-                if code == hid.KEYCODE_A:
+                if self.active_tab == 'notes' and code == hid.KEYCODE_A:
                     self.selected_all = True
                     self.last_input = 'Selected all note text'
-                elif code == hid.KEYCODE_S:
+                elif self.active_tab == 'notes' and code == hid.KEYCODE_S:
                     self.saved = True
                     self.last_input = 'Note saved in demo memory'
                 else:
@@ -149,6 +288,38 @@ class DemoDevice:
                 return
             if ctrl or meta or alt:
                 self.last_input = 'System shortcut received (simulated only)'
+                return
+            if self.active_tab == 'snake':
+                directions = {
+                    hid.KEYCODE_UP_ARROW: (0, -1),
+                    hid.KEYCODE_RIGHT_ARROW: (1, 0),
+                    hid.KEYCODE_DOWN_ARROW: (0, 1),
+                    hid.KEYCODE_LEFT_ARROW: (-1, 0),
+                }
+                if code in directions:
+                    self._move_snake(directions[code])
+                elif code == hid.KEYCODE_SPACEBAR:
+                    self._move_snake()
+                elif code == hid.KEYCODE_ESCAPE:
+                    self._reset_snake()
+                else:
+                    self.last_input = 'Snake uses arrow keys or Space'
+                return
+            if self.active_tab == 'calculator':
+                if code == hid.KEYCODE_ESCAPE:
+                    self._calculator_action('clear')
+                elif code == hid.KEYCODE_BACKSPACE_DELETE:
+                    self._calculator_action('backspace')
+                elif code in (hid.KEYCODE_ENTER, hid.KEYCODE_NUMPAD_ENTER) or (
+                        code == hid.KEYCODE_EQUAL_SIGN and not shift):
+                    self._calculator_action('equals')
+                else:
+                    canonical_modifier = hid.MODIFIER_LEFT_SHIFT if shift else 0
+                    character = self.character_map.get((code, canonical_modifier))
+                    if character is not None:
+                        self._calculator_character(character)
+                    else:
+                        self.last_input = 'Calculator accepts numbers and operators'
                 return
             if code == hid.KEYCODE_CAPS_LOCK:
                 self.caps_lock = not self.caps_lock
@@ -208,10 +379,27 @@ class DemoDevice:
             self.revision += 1
             if buttons and not self.buttons:
                 self.last_input = 'Mouse click received by demo target'
-                if relative_x < 0.12 and 0.10 < relative_y < 0.26:
-                    self.active_tab = 'notes'
-                elif relative_x < 0.12 and 0.28 < relative_y < 0.44:
-                    self.active_tab = 'input'
+                pixel_x = relative_x * WIDTH
+                pixel_y = relative_y * HEIGHT
+                if relative_x < 0.135:
+                    if 0.08 < relative_y < 0.24:
+                        self.active_tab = 'notes'
+                    elif 0.25 < relative_y < 0.41:
+                        self.active_tab = 'calculator'
+                    elif 0.42 < relative_y < 0.58:
+                        self.active_tab = 'snake'
+                    elif 0.59 < relative_y < 0.75:
+                        self.active_tab = 'input'
+                elif relative_y > 0.90:
+                    dock_index = int((relative_x - 0.39) / 0.065)
+                    apps = ('notes', 'calculator', 'snake', 'input')
+                    if 0 <= dock_index < len(apps):
+                        self.active_tab = apps[dock_index]
+                elif self.active_tab == 'calculator':
+                    self._calculator_click(pixel_x, pixel_y)
+                elif (self.active_tab == 'snake' and self.snake_game_over and
+                      339 <= pixel_x <= 941 and 184 <= pixel_y <= 586):
+                    self._reset_snake()
             elif vertical or horizontal:
                 self.scroll = max(0, self.scroll + vertical)
                 self.last_input = 'Scroll received by demo target'
@@ -231,6 +419,10 @@ class DemoDevice:
                 'pointer': self.pointer,
                 'lastInput': self.last_input,
                 'saved': self.saved,
+                'activeApp': self.active_tab,
+                'calculatorDisplay': self.calculator_display,
+                'snakeScore': self.snake_score,
+                'snakeGameOver': self.snake_game_over,
                 'revision': self.revision,
                 'serviceEvents': list(self.service_events),
             }
@@ -240,84 +432,216 @@ class DemoDevice:
         with self.lock:
             body = []
 
-            def text(x, y, value, size=20, color='#dbe6f5', weight='400'):
+            def text(x,
+                     y,
+                     value,
+                     size=20,
+                     color='#dbe6f5',
+                     weight='400',
+                     anchor='start'):
                 body.append(
                     f'<text x="{x}" y="{y}" fill="{color}" font-size="{size}" '
-                    f'font-weight="{weight}">{html.escape(str(value))}</text>')
+                    f'font-weight="{weight}" text-anchor="{anchor}">'
+                    f'{html.escape(str(value))}</text>')
+
+            def app_icon(y, color, symbol, label, active=False):
+                if active:
+                    body.append(
+                        f'<rect x="15" y="{y - 8}" width="142" height="106" '
+                        'rx="18" fill="#ffffff" fill-opacity="0.16"/>')
+                body.append(
+                    f'<rect x="50" y="{y}" width="70" height="70" rx="17" '
+                    f'fill="{color}" filter="url(#softShadow)"/>')
+                text(85, y + 46, symbol, 25, '#ffffff', '700', 'middle')
+                text(85, y + 91, label, 15, '#ffffff', '600', 'middle')
+
+            def window(title, subtitle):
+                body.extend([
+                    '<rect x="190" y="73" width="900" height="558" rx="15" '
+                    'fill="#f8fafc" filter="url(#windowShadow)"/>',
+                    '<rect x="190" y="73" width="900" height="54" rx="15" '
+                    'fill="#eef2f6"/>',
+                    '<rect x="190" y="111" width="900" height="16" '
+                    'fill="#eef2f6"/>',
+                    '<circle cx="217" cy="100" r="7" fill="#ff605c"/>',
+                    '<circle cx="240" cy="100" r="7" fill="#ffbd44"/>',
+                    '<circle cx="263" cy="100" r="7" fill="#00ca4e"/>',
+                    '<line x1="190" y1="127" x2="1090" y2="127" '
+                    'stroke="#d7dde4"/>',
+                ])
+                text(292, 107, title, 19, '#1f2937', '700')
+                text(1060, 106, subtitle, 13, '#64748b', '500', 'end')
 
             body.extend([
-                '<rect width="1280" height="720" fill="#315b78"/>',
-                '<rect width="1280" height="42" fill="#17242f"/>',
-                '<rect y="680" width="1280" height="40" fill="#17242f"/>',
-                '<rect x="170" y="72" width="1068" height="574" rx="9" '
-                'fill="#f7f8fa" stroke="#12202b" stroke-width="2"/>',
-                '<rect x="170" y="72" width="1068" height="48" rx="9" fill="#e6e9ed"/>',
-                '<rect x="170" y="111" width="1068" height="9" fill="#e6e9ed"/>',
-                '<circle cx="194" cy="96" r="6" fill="#e06055"/>',
-                '<circle cx="214" cy="96" r="6" fill="#e2aa3d"/>',
-                '<circle cx="234" cy="96" r="6" fill="#50ad67"/>',
-                '<rect x="24" y="78" width="112" height="108" rx="10" fill="#23475f"/>',
-                '<rect x="24" y="202" width="112" height="108" rx="10" fill="#23475f"/>',
+                '<defs>',
+                '<linearGradient id="wallpaper" x1="0" y1="0" x2="1" y2="1">',
+                '<stop offset="0" stop-color="#123455"/>',
+                '<stop offset="0.48" stop-color="#2f6d8a"/>',
+                '<stop offset="1" stop-color="#54366f"/>',
+                '</linearGradient>',
+                '<radialGradient id="glow"><stop offset="0" stop-color="#8be9fd" '
+                'stop-opacity="0.42"/><stop offset="1" stop-color="#8be9fd" '
+                'stop-opacity="0"/></radialGradient>',
+                '<filter id="windowShadow"><feDropShadow dx="0" dy="14" '
+                'stdDeviation="18" flood-opacity="0.34"/></filter>',
+                '<filter id="softShadow"><feDropShadow dx="0" dy="4" '
+                'stdDeviation="5" flood-opacity="0.28"/></filter>',
+                '</defs>',
+                '<rect width="1280" height="720" fill="url(#wallpaper)"/>',
+                '<circle cx="990" cy="185" r="430" fill="url(#glow)"/>',
+                '<path d="M0 535 C240 430 370 650 640 535 S1050 390 1280 520 '
+                'V720 H0 Z" fill="#0b2038" fill-opacity="0.22"/>',
+                '<rect width="1280" height="38" fill="#091827" fill-opacity="0.86"/>',
             ])
-            text(18, 28, 'TinyDesk', 18, '#f7fbff', '600')
-            text(930, 28, 'IN-MEMORY DEMO · NO VM', 14, '#bfd2df')
-            text(57, 124, '▤', 38, '#f7fbff')
-            text(47, 163, 'Notes', 17, '#f7fbff', '600')
-            text(57, 248, '⌁', 38, '#f7fbff')
-            text(39, 287, 'Activity', 17, '#f7fbff', '600')
-            window_title = 'Notes' if self.active_tab == 'notes' else 'Input activity'
-            text(257, 103, window_title, 18, '#243440', '600')
-            text(1075, 103, 'Saved' if self.saved else 'Session only', 14,
-                 '#526875')
+            text(20, 26, 'TinyDesk OS', 16, '#ffffff', '700')
+            text(135, 26, 'Applications', 14, '#dbeafe', '500')
+            text(1138, 26, 'Wi-Fi  •  ' + time.strftime('%a %H:%M'), 14,
+                 '#e2e8f0', '500')
+
+            app_icon(62, '#4f7cff', 'N', 'Notes', self.active_tab == 'notes')
+            app_icon(181, '#f59e0b', '123', 'Calculator',
+                     self.active_tab == 'calculator')
+            app_icon(300, '#10b981', 'S', 'Snake', self.active_tab == 'snake')
+            app_icon(419, '#8b5cf6', 'i', 'Activity',
+                     self.active_tab == 'input')
+
+            titles = {
+                'notes': ('Notes', 'Saved' if self.saved else 'Session only'),
+                'calculator': ('Calculator', 'Keyboard ready'),
+                'snake': ('Snake', f'Score {self.snake_score}'),
+                'input': ('System Activity', 'Live input diagnostics'),
+            }
+            window(*titles[self.active_tab])
             if self.active_tab == 'notes':
-                text(198, 151,
-                     'Type anywhere in this note. Ctrl+S marks it saved.', 15,
-                     '#647782')
-                body.append('<line x1="198" y1="169" x2="1208" y2="169" '
-                            'stroke="#d9dfe3"/>')
+                text(224, 161, 'Type anywhere. Ctrl+S saves this session note.',
+                     14, '#64748b')
+                body.append('<line x1="224" y1="180" x2="1056" y2="180" '
+                            'stroke="#e2e8f0"/>')
                 lines = self.text.expandtabs(4).split('\n')
                 visual_lines = []
                 for line in lines:
                     visual_lines.extend(
-                        [line[i:i + 88] for i in range(0, len(line), 88)] or
+                        [line[i:i + 72] for i in range(0, len(line), 72)] or
                         [''])
-                offset = min(self.scroll, max(0, len(visual_lines) - 15))
+                offset = min(self.scroll, max(0, len(visual_lines) - 13))
                 if self.selected_all and self.text:
                     body.append(
-                        '<rect x="194" y="181" width="1016" height="405" '
-                        'rx="4" fill="#d5e9f7"/>')
-                for index, line in enumerate(visual_lines[offset:offset + 15]):
-                    text(199, 208 + index * 25, line, 18, '#17242f')
+                        '<rect x="219" y="191" width="842" height="350" '
+                        'rx="8" fill="#dbeafe"/>')
+                for index, line in enumerate(visual_lines[offset:offset + 13]):
+                    text(225, 220 + index * 25, line, 18, '#172033')
                 if not self.text:
-                    text(199, 208, 'Your private demo note appears here…', 18,
-                         '#98a5ad')
+                    text(225, 220, 'Write a note on your private TinyDesk…', 18,
+                         '#94a3b8')
                 text(
-                    198, 620, f'{len(self.text)} / {MAX_TEXT} characters  ·  '
-                    f'Caret {self.cursor}', 13, '#647782')
+                    225, 601, f'{len(self.text)} / {MAX_TEXT} characters  ·  '
+                    f'Caret {self.cursor}', 13, '#64748b')
+            elif self.active_tab == 'calculator':
+                body.append('<rect x="370" y="154" width="540" height="98" '
+                            'rx="15" fill="#162033"/>')
+                text(875, 220, self.calculator_display, 42, '#f8fafc', '500',
+                     'end')
+                keys = [
+                    ('C', '#ef4444'), ('÷', '#64748b'), ('×', '#64748b'),
+                    ('−', '#64748b'), ('7', '#e2e8f0'), ('8', '#e2e8f0'),
+                    ('9', '#e2e8f0'), ('+', '#64748b'), ('4', '#e2e8f0'),
+                    ('5', '#e2e8f0'), ('6', '#e2e8f0'), ('=', '#4f7cff'),
+                    ('1', '#e2e8f0'), ('2', '#e2e8f0'), ('3', '#e2e8f0'),
+                    ('0', '#e2e8f0'), ('.', '#e2e8f0'), ('⌫', '#e2e8f0'),
+                ]
+                for index, (label, color) in enumerate(keys):
+                    columns = 4 if index < 16 else 3
+                    row = index // 4
+                    column = index % 4 if index < 16 else index - 16
+                    width = 120 if columns == 4 else 166
+                    x = 370 + column * (width + 20)
+                    y = 273 + row * 67
+                    body.append(
+                        f'<rect x="{x}" y="{y}" width="{width}" height="52" '
+                        f'rx="11" fill="{color}"/>')
+                    ink = '#ffffff' if color not in {'#e2e8f0'} else '#1e293b'
+                    text(x + width / 2, y + 34, label, 21, ink, '700', 'middle')
+                text(640, 604, 'Use number keys, + − × ÷, Enter, Backspace, or Esc',
+                     14, '#64748b', '500', 'middle')
+            elif self.active_tab == 'snake':
+                text(640, 161,
+                     'Arrow keys move one tile  •  Space continues  •  Esc restarts',
+                     14, '#64748b', '500', 'middle')
+                body.append('<rect x="339" y="184" width="602" height="402" '
+                            'rx="14" fill="#0b1628"/>')
+                for grid_x in range(19):
+                    x = 352 + grid_x * 32
+                    body.append(
+                        f'<line x1="{x}" y1="193" x2="{x}" y2="577" '
+                        'stroke="#1e334c" stroke-width="1"/>')
+                for grid_y in range(13):
+                    y = 193 + grid_y * 32
+                    body.append(
+                        f'<line x1="352" y1="{y}" x2="928" y2="{y}" '
+                        'stroke="#1e334c" stroke-width="1"/>')
+                food_x, food_y = self.snake_food
+                body.append(
+                    f'<circle cx="{368 + food_x * 32}" cy="{209 + food_y * 32}" '
+                    'r="9" fill="#fb7185"/>')
+                for index, (snake_x, snake_y) in enumerate(self.snake):
+                    color = '#a7f3d0' if index == 0 else '#34d399'
+                    body.append(
+                        f'<rect x="{355 + snake_x * 32}" '
+                        f'y="{196 + snake_y * 32}" width="26" height="26" '
+                        f'rx="8" fill="{color}"/>')
+                if self.snake_game_over:
+                    body.append('<rect x="450" y="325" width="380" height="105" '
+                                'rx="18" fill="#09111f" fill-opacity="0.94"/>')
+                    text(640, 367, 'Game over', 27, '#ffffff', '700', 'middle')
+                    text(640, 402, 'Press any arrow key to restart', 15,
+                         '#cbd5e1', '500', 'middle')
             else:
-                text(198, 166,
-                     'Real TinyPilot input handlers, session-private state', 18,
-                     '#243440', '600')
-                text(198, 226, f'Keyboard events     {self.key_count}', 20,
-                     '#334a58')
-                text(198, 270, f'Pointer events      {self.mouse_count}', 20,
-                     '#334a58')
+                text(226, 164, 'Real TinyPilot input handlers', 17, '#1e293b',
+                     '700')
+                cards = [
+                    ('Keyboard events', self.key_count, '#4f7cff'),
+                    ('Pointer events', self.mouse_count, '#10b981'),
+                    ('Active app', self.active_tab.title(), '#f59e0b'),
+                ]
+                for index, (label, value, color) in enumerate(cards):
+                    x = 225 + index * 272
+                    body.append(
+                        f'<rect x="{x}" y="195" width="242" height="122" '
+                        'rx="15" fill="#ffffff" stroke="#e2e8f0"/>')
+                    body.append(
+                        f'<rect x="{x}" y="195" width="7" height="122" '
+                        f'rx="4" fill="{color}"/>')
+                    text(x + 24, 230, label, 14, '#64748b', '600')
+                    text(x + 24, 286, value, 29, '#172033', '700')
                 text(
-                    198, 314, f'Pointer             {self.pointer[0]:.3f}, '
-                    f'{self.pointer[1]:.3f}', 20, '#334a58')
-                text(198, 358, f'Buttons held        {self.buttons}', 20,
-                     '#334a58')
-                text(198, 434, self.last_input, 17, '#267456')
-                text(198, 500,
-                     'No operating system, VM, subprocess, or physical HID.',
-                     16, '#647782')
+                    225, 369, f'Pointer position   {self.pointer[0]:.3f}, '
+                    f'{self.pointer[1]:.3f}', 17, '#334155')
+                text(225, 408, f'Last event   {self.last_input}', 17, '#334155')
+                body.append('<rect x="225" y="462" width="815" height="92" '
+                            'rx="14" fill="#eef6ff"/>')
+                text(249, 495, 'Safe demonstration environment', 16, '#1d4ed8',
+                     '700')
                 text(
-                    198, 532,
-                    'This computer is a bounded in-memory object rendered as SVG.',
-                    16, '#647782')
-            text(18, 706, '●', 17, '#63d49b')
-            text(42, 706, self.last_input, 14, '#dbe8ef')
-            text(1000, 706, 'PRIVATE BROWSER SESSION', 13, '#bfd2df')
+                    249, 526,
+                    'No VM, subprocess, browser engine, physical HID, or persistent disk.',
+                    14, '#475569')
+
+            body.append('<rect x="468" y="650" width="344" height="58" rx="22" '
+                        'fill="#0b1628" fill-opacity="0.78" '
+                        'stroke="#ffffff" stroke-opacity="0.18"/>')
+            dock = [('#4f7cff', 'N'), ('#f59e0b', '123'), ('#10b981', 'S'),
+                    ('#8b5cf6', 'i')]
+            for index, (color, symbol) in enumerate(dock):
+                x = 493 + index * 78
+                body.append(
+                    f'<rect x="{x}" y="658" width="42" height="42" rx="12" '
+                    f'fill="{color}"/>')
+                text(x + 21, 686, symbol, 15, '#ffffff', '700', 'middle')
+                if self.active_tab == ('notes', 'calculator', 'snake', 'input')[index]:
+                    body.append(
+                        f'<circle cx="{x + 21}" cy="704" r="3" fill="#ffffff"/>')
+            text(22, 704, '●  Connected', 14, '#d1fae5', '600')
+            text(1255, 704, 'PRIVATE SESSION', 12, '#dbeafe', '600', 'end')
             pointer_x = min(1260, max(5, round(self.pointer[0] * WIDTH)))
             pointer_y = min(690, max(5, round(self.pointer[1] * HEIGHT)))
             body.append(f'<path transform="translate({pointer_x} {pointer_y})" '
@@ -325,7 +649,8 @@ class DemoDevice:
                         'fill="#f5f8ff" stroke="#111a2b" stroke-width="2"/>')
             return ('<svg xmlns="http://www.w3.org/2000/svg" width="1280" '
                     'height="720" viewBox="0 0 1280 720" '
-                    'font-family="ui-monospace, monospace">' + ''.join(body) +
+                    'font-family="Inter, ui-sans-serif, system-ui, sans-serif">' +
+                    ''.join(body) +
                     '</svg>')
 
 
@@ -802,7 +1127,7 @@ def self_test():
     assert b'&lt;script&gt;demo&lt;/script&gt;' in frame.data
     assert b'<script>demo</script>' not in frame.data
     assert b'TinyDesk' in frame.data
-    assert b'PRIVATE BROWSER SESSION' in frame.data
+    assert b'PRIVATE SESSION' in frame.data
     assert client.get('/stream').status_code == 200
     socket = socketio.test_client(app, flask_test_client=client)
     assert socket.is_connected()
@@ -830,10 +1155,30 @@ def self_test():
     pointer = {
         'buttons': 1,
         'relativeX': 0.1,
-        'relativeY': 0.38,
+        'relativeY': 0.31,
         'verticalWheelDelta': 0,
         'horizontalWheelDelta': 0
     }
+    assert socket.emit('mouse-event', pointer, callback=True)['success']
+    assert device.active_tab == 'calculator'
+    assert socket.emit('mouse-event', dict(pointer, buttons=0),
+                       callback=True)['success']
+    for event in ({'code': 'Digit7'}, {
+            'code': 'Equal',
+            'shiftLeft': True
+    }, {'code': 'Digit5'}, {'code': 'Enter'}):
+        assert socket.emit('keystroke', event, callback=True)['success']
+    assert device.calculator_display == '12'
+    pointer.update({'relativeY': 0.49, 'buttons': 1})
+    assert socket.emit('mouse-event', pointer, callback=True)['success']
+    assert device.active_tab == 'snake'
+    assert socket.emit('mouse-event', dict(pointer, buttons=0),
+                       callback=True)['success']
+    snake_head = device.snake[0]
+    assert socket.emit('keystroke', {'code': 'ArrowDown'},
+                       callback=True)['success']
+    assert device.snake[0] == (snake_head[0], snake_head[1] + 1)
+    pointer.update({'relativeY': 0.67, 'buttons': 1})
     assert socket.emit('mouse-event', pointer, callback=True)['success']
     assert device.active_tab == 'input'
     assert socket.emit('mouse-event', dict(pointer, relativeX=2),
