@@ -308,11 +308,10 @@ venv/bin/python3 dev-scripts/serve-webmcp-demo --port 8000
 
 Open `http://127.0.0.1:8000/` in a WebMCP-capable browser. Each browser session
 receives a private TinyDesk micro desktop backed by a few kilobytes of in-memory
-state. Its desktop shell includes Notes, Calculator, a tile-based Snake game,
-and live Input Activity. Type text, perform calculations, play with arrow-key
-input, move/click the pointer, and save a note with Ctrl+S. Reset my demo
-computer clears only the caller's state. Typed text is never evaluated or
-executed.
+state. Its desktop shell includes Notes, Calculator, Minesweeper, and live Input
+Activity. Type text, perform calculations, reveal or flag Minesweeper tiles,
+move/click the pointer, and save a note with Ctrl+S. Reset my demo computer
+clears only the caller's state. Typed text is never evaluated or executed.
 
 This launcher creates a fresh temporary `TINYPILOT_HOME_DIR` and applies the
 normal SQLite migrations there. It uses the real application, controllers,

@@ -32,6 +32,7 @@ import tempfile
 import threading
 import time
 import types
+import xml.etree.ElementTree
 
 DEMO_LABEL = 'Session-private demo — no physical hardware or VM'
 DEMO_SESSION_KEY = 'webmcp_demo_session'
@@ -107,11 +108,7 @@ class DemoDevice:
             self.calculator_accumulator = None
             self.calculator_operator = None
             self.calculator_new_entry = True
-            self.snake = [(8, 6), (7, 6), (6, 6)]
-            self.snake_food = (13, 6)
-            self.snake_direction = (1, 0)
-            self.snake_score = 0
-            self.snake_game_over = False
+            self._reset_mines()
             self.last_input = 'Ready for keyboard and mouse input'
             self.saved = False
             self.revision = 0
@@ -224,43 +221,70 @@ class DemoDevice:
                     pixel_x - (370 + column * 186) <= 166):
                 self._calculator_action(actions[index])
 
-    def _reset_snake(self):
-        self.snake = [(8, 6), (7, 6), (6, 6)]
-        self.snake_food = (13, 6)
-        self.snake_direction = (1, 0)
-        self.snake_score = 0
-        self.snake_game_over = False
-        self.last_input = 'Snake ready — use arrow keys'
+    def _reset_mines(self):
+        self.mine_locations = {
+            (2, 0), (5, 0), (9, 0), (0, 2), (4, 2), (7, 2), (10, 3),
+            (2, 4), (6, 4), (9, 5), (1, 6), (5, 7), (8, 7), (11, 8)
+        }
+        self.mine_revealed = set()
+        self.mine_flags = set()
+        self.mine_status = 'playing'
+        self.last_input = 'Minesweeper ready — click a tile'
 
-    def _move_snake(self, direction=None):
-        if self.snake_game_over:
-            self._reset_snake()
+    def _mine_count(self, cell):
+        cell_x, cell_y = cell
+        return sum((cell_x + offset_x, cell_y + offset_y) in
+                   self.mine_locations for offset_x in (-1, 0, 1)
+                   for offset_y in (-1, 0, 1)
+                   if offset_x or offset_y)
+
+    def _reveal_mine_cell(self, cell):
+        if self.mine_status != 'playing' or cell in self.mine_flags:
             return
-        if direction:
-            opposite = (-self.snake_direction[0], -self.snake_direction[1])
-            if direction != opposite:
-                self.snake_direction = direction
-        head_x, head_y = self.snake[0]
-        next_head = (head_x + self.snake_direction[0],
-                     head_y + self.snake_direction[1])
-        if (next_head[0] < 0 or next_head[0] >= 18 or next_head[1] < 0 or
-                next_head[1] >= 12 or next_head in self.snake[:-1]):
-            self.snake_game_over = True
-            self.last_input = 'Snake game over — press an arrow to restart'
+        if cell in self.mine_locations:
+            self.mine_revealed.update(self.mine_locations)
+            self.mine_status = 'lost'
+            self.last_input = 'Mine found — start a new game'
             return
-        self.snake.insert(0, next_head)
-        if next_head == self.snake_food:
-            self.snake_score += 1
-            candidate = ((3 + self.snake_score * 5) % 18,
-                         (2 + self.snake_score * 7) % 12)
-            while candidate in self.snake:
-                candidate = ((candidate[0] + 3) % 18,
-                             (candidate[1] + 1) % 12)
-            self.snake_food = candidate
-            self.last_input = f'Snake score {self.snake_score}'
+        pending = [cell]
+        while pending:
+            current = pending.pop()
+            if current in self.mine_revealed or current in self.mine_flags:
+                continue
+            self.mine_revealed.add(current)
+            if self._mine_count(current) == 0:
+                current_x, current_y = current
+                for neighbor_x in range(max(0, current_x - 1),
+                                        min(12, current_x + 2)):
+                    for neighbor_y in range(max(0, current_y - 1),
+                                            min(9, current_y + 2)):
+                        neighbor = (neighbor_x, neighbor_y)
+                        if neighbor not in self.mine_locations:
+                            pending.append(neighbor)
+        safe_cells = 12 * 9 - len(self.mine_locations)
+        if len(self.mine_revealed) == safe_cells:
+            self.mine_status = 'won'
+            self.last_input = 'Minesweeper cleared — you won'
         else:
-            self.snake.pop()
-            self.last_input = 'Snake moved one tile'
+            self.last_input = 'Minesweeper revealed a safe tile'
+
+    def _mines_click(self, pixel_x, pixel_y, buttons):
+        if 914 <= pixel_x <= 1048 and 140 <= pixel_y <= 174:
+            self._reset_mines()
+            return
+        if not (352 <= pixel_x < 880 and 190 <= pixel_y < 586):
+            return
+        cell = (int((pixel_x - 352) / 44), int((pixel_y - 190) / 44))
+        if buttons & 2:
+            if self.mine_status == 'playing' and cell not in self.mine_revealed:
+                if cell in self.mine_flags:
+                    self.mine_flags.remove(cell)
+                    self.last_input = 'Minesweeper flag removed'
+                elif len(self.mine_flags) < len(self.mine_locations):
+                    self.mine_flags.add(cell)
+                    self.last_input = 'Minesweeper tile flagged'
+        else:
+            self._reveal_mine_cell(cell)
 
     def send_key(self, _path, key):
         with self.lock:
@@ -289,21 +313,11 @@ class DemoDevice:
             if ctrl or meta or alt:
                 self.last_input = 'System shortcut received (simulated only)'
                 return
-            if self.active_tab == 'snake':
-                directions = {
-                    hid.KEYCODE_UP_ARROW: (0, -1),
-                    hid.KEYCODE_RIGHT_ARROW: (1, 0),
-                    hid.KEYCODE_DOWN_ARROW: (0, 1),
-                    hid.KEYCODE_LEFT_ARROW: (-1, 0),
-                }
-                if code in directions:
-                    self._move_snake(directions[code])
-                elif code == hid.KEYCODE_SPACEBAR:
-                    self._move_snake()
-                elif code == hid.KEYCODE_ESCAPE:
-                    self._reset_snake()
+            if self.active_tab == 'mines':
+                if code in (hid.KEYCODE_ESCAPE, hid.KEYCODE_R):
+                    self._reset_mines()
                 else:
-                    self.last_input = 'Snake uses arrow keys or Space'
+                    self.last_input = 'Minesweeper uses pointer clicks; R restarts'
                 return
             if self.active_tab == 'calculator':
                 if code == hid.KEYCODE_ESCAPE:
@@ -387,19 +401,18 @@ class DemoDevice:
                     elif 0.25 < relative_y < 0.41:
                         self.active_tab = 'calculator'
                     elif 0.42 < relative_y < 0.58:
-                        self.active_tab = 'snake'
+                        self.active_tab = 'mines'
                     elif 0.59 < relative_y < 0.75:
                         self.active_tab = 'input'
                 elif relative_y > 0.90:
                     dock_index = int((relative_x - 0.39) / 0.065)
-                    apps = ('notes', 'calculator', 'snake', 'input')
+                    apps = ('notes', 'calculator', 'mines', 'input')
                     if 0 <= dock_index < len(apps):
                         self.active_tab = apps[dock_index]
                 elif self.active_tab == 'calculator':
                     self._calculator_click(pixel_x, pixel_y)
-                elif (self.active_tab == 'snake' and self.snake_game_over and
-                      339 <= pixel_x <= 941 and 184 <= pixel_y <= 586):
-                    self._reset_snake()
+                elif self.active_tab == 'mines':
+                    self._mines_click(pixel_x, pixel_y, buttons)
             elif vertical or horizontal:
                 self.scroll = max(0, self.scroll + vertical)
                 self.last_input = 'Scroll received by demo target'
@@ -421,8 +434,9 @@ class DemoDevice:
                 'saved': self.saved,
                 'activeApp': self.active_tab,
                 'calculatorDisplay': self.calculator_display,
-                'snakeScore': self.snake_score,
-                'snakeGameOver': self.snake_game_over,
+                'minesStatus': self.mine_status,
+                'minesRevealed': len(self.mine_revealed),
+                'minesFlagged': len(self.mine_flags),
                 'revision': self.revision,
                 'serviceEvents': list(self.service_events),
             }
@@ -501,14 +515,16 @@ class DemoDevice:
             app_icon(62, '#4f7cff', 'N', 'Notes', self.active_tab == 'notes')
             app_icon(181, '#f59e0b', '123', 'Calculator',
                      self.active_tab == 'calculator')
-            app_icon(300, '#10b981', 'S', 'Snake', self.active_tab == 'snake')
+            app_icon(300, '#10b981', 'M', 'Mines', self.active_tab == 'mines')
             app_icon(419, '#8b5cf6', 'i', 'Activity',
                      self.active_tab == 'input')
 
             titles = {
                 'notes': ('Notes', 'Saved' if self.saved else 'Session only'),
                 'calculator': ('Calculator', 'Keyboard ready'),
-                'snake': ('Snake', f'Score {self.snake_score}'),
+                'mines': ('Minesweeper',
+                          f'{len(self.mine_flags)} flags · '
+                          f'{len(self.mine_locations)} mines'),
                 'input': ('System Activity', 'Live input diagnostics'),
             }
             window(*titles[self.active_tab])
@@ -563,38 +579,61 @@ class DemoDevice:
                     text(x + width / 2, y + 34, label, 21, ink, '700', 'middle')
                 text(640, 604, 'Use number keys, + − × ÷, Enter, Backspace, or Esc',
                      14, '#64748b', '500', 'middle')
-            elif self.active_tab == 'snake':
-                text(640, 161,
-                     'Arrow keys move one tile  •  Space continues  •  Esc restarts',
-                     14, '#64748b', '500', 'middle')
-                body.append('<rect x="339" y="184" width="602" height="402" '
-                            'rx="14" fill="#0b1628"/>')
-                for grid_x in range(19):
-                    x = 352 + grid_x * 32
-                    body.append(
-                        f'<line x1="{x}" y1="193" x2="{x}" y2="577" '
-                        'stroke="#1e334c" stroke-width="1"/>')
-                for grid_y in range(13):
-                    y = 193 + grid_y * 32
-                    body.append(
-                        f'<line x1="352" y1="{y}" x2="928" y2="{y}" '
-                        'stroke="#1e334c" stroke-width="1"/>')
-                food_x, food_y = self.snake_food
-                body.append(
-                    f'<circle cx="{368 + food_x * 32}" cy="{209 + food_y * 32}" '
-                    'r="9" fill="#fb7185"/>')
-                for index, (snake_x, snake_y) in enumerate(self.snake):
-                    color = '#a7f3d0' if index == 0 else '#34d399'
-                    body.append(
-                        f'<rect x="{355 + snake_x * 32}" '
-                        f'y="{196 + snake_y * 32}" width="26" height="26" '
-                        f'rx="8" fill="{color}"/>')
-                if self.snake_game_over:
+            elif self.active_tab == 'mines':
+                text(225, 162, 'Click to reveal · right-click to flag', 14,
+                     '#64748b', '500')
+                body.append('<rect x="914" y="140" width="134" height="34" '
+                            'rx="9" fill="#e2e8f0"/>')
+                text(981, 163, 'New game', 14, '#334155', '700', 'middle')
+                number_colors = {
+                    1: '#2563eb',
+                    2: '#15803d',
+                    3: '#dc2626',
+                    4: '#6d28d9',
+                    5: '#9f1239',
+                    6: '#0f766e',
+                    7: '#111827',
+                    8: '#475569',
+                }
+                for mine_y in range(9):
+                    for mine_x in range(12):
+                        cell = (mine_x, mine_y)
+                        x = 352 + mine_x * 44
+                        y = 190 + mine_y * 44
+                        if cell in self.mine_revealed:
+                            fill = '#f8fafc'
+                            body.append(
+                                f'<rect x="{x}" y="{y}" width="44" '
+                                f'height="44" fill="{fill}" stroke="#cbd5e1"/>')
+                            if cell in self.mine_locations:
+                                body.append(
+                                    f'<circle cx="{x + 22}" cy="{y + 22}" r="11" '
+                                    'fill="#ef4444"/>')
+                                text(x + 22, y + 28, '×', 17, '#ffffff', '700',
+                                     'middle')
+                            else:
+                                nearby = self._mine_count(cell)
+                                if nearby:
+                                    text(x + 22, y + 29, nearby, 19,
+                                         number_colors[nearby], '800', 'middle')
+                        else:
+                            body.append(
+                                f'<rect x="{x + 2}" y="{y + 2}" width="40" '
+                                'height="40" rx="7" fill="#cbd5e1" '
+                                'stroke="#ffffff" stroke-width="2"/>')
+                            if cell in self.mine_flags:
+                                text(x + 22, y + 29, 'F', 18, '#dc2626', '800',
+                                     'middle')
+                if self.mine_status != 'playing':
+                    message = ('Board cleared!' if self.mine_status == 'won'
+                               else 'Mine found')
+                    detail = ('You won — start a new game'
+                              if self.mine_status == 'won'
+                              else 'Choose New game to try again')
                     body.append('<rect x="450" y="325" width="380" height="105" '
                                 'rx="18" fill="#09111f" fill-opacity="0.94"/>')
-                    text(640, 367, 'Game over', 27, '#ffffff', '700', 'middle')
-                    text(640, 402, 'Press any arrow key to restart', 15,
-                         '#cbd5e1', '500', 'middle')
+                    text(640, 367, message, 27, '#ffffff', '700', 'middle')
+                    text(640, 402, detail, 15, '#cbd5e1', '500', 'middle')
             else:
                 text(226, 164, 'Real TinyPilot input handlers', 17, '#1e293b',
                      '700')
@@ -629,7 +668,7 @@ class DemoDevice:
             body.append('<rect x="468" y="650" width="344" height="58" rx="22" '
                         'fill="#0b1628" fill-opacity="0.78" '
                         'stroke="#ffffff" stroke-opacity="0.18"/>')
-            dock = [('#4f7cff', 'N'), ('#f59e0b', '123'), ('#10b981', 'S'),
+            dock = [('#4f7cff', 'N'), ('#f59e0b', '123'), ('#10b981', 'M'),
                     ('#8b5cf6', 'i')]
             for index, (color, symbol) in enumerate(dock):
                 x = 493 + index * 78
@@ -637,7 +676,8 @@ class DemoDevice:
                     f'<rect x="{x}" y="658" width="42" height="42" rx="12" '
                     f'fill="{color}"/>')
                 text(x + 21, 686, symbol, 15, '#ffffff', '700', 'middle')
-                if self.active_tab == ('notes', 'calculator', 'snake', 'input')[index]:
+                if self.active_tab == ('notes', 'calculator', 'mines',
+                                       'input')[index]:
                     body.append(
                         f'<circle cx="{x + 21}" cy="704" r="3" fill="#ffffff"/>')
             text(22, 704, '●  Connected', 14, '#d1fae5', '600')
@@ -1124,6 +1164,7 @@ def self_test():
     assert other_device.text == ''
     frame = client.get('/snapshot')
     assert frame.mimetype == 'image/svg+xml'
+    xml.etree.ElementTree.fromstring(frame.data)
     assert b'&lt;script&gt;demo&lt;/script&gt;' in frame.data
     assert b'<script>demo</script>' not in frame.data
     assert b'TinyDesk' in frame.data
@@ -1171,13 +1212,25 @@ def self_test():
     assert device.calculator_display == '12'
     pointer.update({'relativeY': 0.49, 'buttons': 1})
     assert socket.emit('mouse-event', pointer, callback=True)['success']
-    assert device.active_tab == 'snake'
+    assert device.active_tab == 'mines'
     assert socket.emit('mouse-event', dict(pointer, buttons=0),
                        callback=True)['success']
-    snake_head = device.snake[0]
-    assert socket.emit('keystroke', {'code': 'ArrowDown'},
+    mine_click = dict(pointer,
+                      relativeX=(352 + 22) / WIDTH,
+                      relativeY=(190 + 22) / HEIGHT,
+                      buttons=1)
+    assert socket.emit('mouse-event', mine_click, callback=True)['success']
+    assert device.mine_revealed
+    assert device.mine_status == 'playing'
+    assert socket.emit('mouse-event', dict(mine_click, buttons=0),
                        callback=True)['success']
-    assert device.snake[0] == (snake_head[0], snake_head[1] + 1)
+    flag_click = dict(mine_click,
+                      relativeX=(352 + 2 * 44 + 22) / WIDTH,
+                      buttons=2)
+    assert socket.emit('mouse-event', flag_click, callback=True)['success']
+    assert (2, 0) in device.mine_flags
+    assert socket.emit('mouse-event', dict(flag_click, buttons=0),
+                       callback=True)['success']
     pointer.update({'relativeY': 0.67, 'buttons': 1})
     assert socket.emit('mouse-event', pointer, callback=True)['success']
     assert device.active_tab == 'input'

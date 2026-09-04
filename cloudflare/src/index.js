@@ -12,7 +12,7 @@ export class TinyPilotContainer extends Container {
 
 export default {
   fetch(request, workerEnv) {
-    return getContainer(workerEnv.TINYPILOT_CONTAINER, "desktop-v2").fetch(
+    return getContainer(workerEnv.TINYPILOT_CONTAINER, "desktop-v3").fetch(
       request,
     );
   },
