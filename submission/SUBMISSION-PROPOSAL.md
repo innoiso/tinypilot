@@ -13,18 +13,19 @@ physical-device proof.
 remote physical computer into 75 discoverable, typed WebMCP tools, so a person
 can delegate console work while watching and retaining control.
 
-**Demo video:** `submission/video/tinypilot-webmcp-demo.mp4` — 2:27.000,
-1920×1080 H.264, mono AAC. Publish as a public YouTube video and replace this
-line with the URL.
+**Demo video:** https://youtu.be/4qRk221pgPc — public YouTube video, 2:27.000,
+1920×1080 H.264, mono AAC.
 
-**Live app:** Pending a judge-accessible HTTPS URL. `https://tinypilot/` is the
-verified physical appliance on the local network and is not sufficient for
-remote judges. The repository includes `Dockerfile.webmcp-demo` and a
-session-isolated in-memory micro desktop for public deployment.
+**Live app:** https://tinypilot-webmcp-demo.innoiso.workers.dev/ — verified in
+ChatGPT's in-app browser with native WebMCP discovery, screen capture, and
+pointer calls. Supply the judge credentials privately in the Devpost form. Each
+signed-in browser receives session-private TinyDesk state.
 
-**Public source:** https://github.com/innoiso/tinypilot is a public GitHub fork
-of `tiny-pilot/tinypilot`. Its default `master` branch contains the complete
-submission and retains the upstream MIT license at the repository root.
+**Public source:**
+https://github.com/innoiso/tinypilot/tree/codex/tinypilot-webmcp-submission is a
+public challenge branch in the `tiny-pilot/tinypilot` fork. It contains the
+complete submission and retains the upstream MIT license at the repository
+root.
 
 ## Description for Devpost
 
@@ -102,18 +103,18 @@ validation, tests, documentation, demo runtime, and deployment tooling.
 
 ## YouTube upload copy
 
-**Title:** TinyPilot WebMCP — An AI Agent Controls a Physical Computer Through the Browser
+**Title:** TinyPilot WebMCP — AI Computer Control Without Installed Software
 
 **Description:**
 
 > TinyPilot WebMCP exposes the normal TinyPilot dashboard as 75 browser-native
-> WebMCP tools. This demo uses a physical TinyPilot Pro 3.0.2 appliance and an
-> attached computer. The agent starts at Wikipedia's Common sunflower page and
-> reaches Family Matters through TinyPilot while the person watches the same
-> console. Narrated by the builder from a physical hardware test.
+> WebMCP tools. An AI agent can inspect and operate a remote computer through
+> TinyPilot without installing agent software on the controlled computer. This
+> demonstration uses a physical TinyPilot Pro 3.0.2 appliance and its attached
+> computer while the person watches the same console.
 >
-> Source: https://github.com/innoiso/tinypilot
-> Live demo: [PUBLIC HTTPS URL]
+> Source: https://github.com/innoiso/tinypilot/tree/codex/tinypilot-webmcp-submission
+> Live demo: https://tinypilot-webmcp-demo.innoiso.workers.dev/
 > WebMCP Challenge: https://openai.com/webmcp-challenge/
 
 ## Final submission checklist
@@ -125,20 +126,20 @@ validation, tests, documentation, demo runtime, and deployment tooling.
 - [x] Open-source MIT license is detectable at repository root.
 - [x] Demo video is under three minutes, has audio, and clearly shows WebMCP use.
 - [x] Publish the final repository and verify anonymous access.
-- [ ] Deploy an HTTPS demo and verify it in WebMCP-enabled Chrome or ChatGPT's in-app browser from outside the local network.
-- [ ] Upload the final MP4 to YouTube as Public and verify playback without signing in.
-- [ ] Replace the pending live-demo and YouTube URLs in this document and the
+- [x] Deploy an HTTPS demo and verify it in ChatGPT's in-app browser from
+      outside the local network.
+- [x] Upload the final MP4 publicly to YouTube and verify anonymous metadata.
+- [x] Replace the pending live-demo and YouTube URLs in this document.
+- [x] Prepare judge credentials for the private Devpost credential field.
+- [ ] Add the live URL, source branch, YouTube URL, and judge credentials to the
       Devpost form.
-- [ ] Add judge credentials privately if the live app requires authentication.
 - [ ] Complete entrant, eligibility, team, and contact fields.
 - [ ] Submit on Devpost and retain the final confirmation page or receipt.
 
 ## Deadline note
 
-The OpenAI challenge page states September 3, 2026 at 1:00 p.m. Pacific, while
-the live Devpost overview currently displays September 4, 2026 at 1:00 a.m.
-PDT. Treat the earlier time as the safe cutoff and submit immediately; do not
-plan around the discrepancy.
+The live Devpost overview displays September 4, 2026 at 1:00 a.m. PDT. Submit
+before that deadline and retain the confirmation page or receipt.
 
 ## Recording sources
 

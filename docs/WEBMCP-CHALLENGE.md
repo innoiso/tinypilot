@@ -215,11 +215,11 @@ tool results.
 | Item                                | Value                                                                                           |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Entrant / authorized representative | Pending                                                                                         |
-| Live URL                            | Pending deployment and judge-access verification                                                |
-| Judge credentials                   | Supply privately in the Devpost form if required                                                |
-| Public repository                   | `https://github.com/innoiso/tinypilot`                                                           |
-| Public implementation commit        | `c6d90c78be56714d18602ae0343171033e7cd8d1`                                                      |
-| Public YouTube URL                  | Final video built; pending publication                                                          |
+| Live URL                            | `https://tinypilot-webmcp-demo.innoiso.workers.dev/`; verified with native WebMCP calls          |
+| Judge credentials                   | Prepared; supply privately in the Devpost form                                                  |
+| Public repository                   | `https://github.com/innoiso/tinypilot/tree/codex/tinypilot-webmcp-submission`                    |
+| Public implementation commit        | `972daa0efec257875fe8bc1ae638bc6413c113fa`                                                      |
+| Public YouTube URL                  | `https://youtu.be/4qRk221pgPc`; anonymous oEmbed metadata verified                              |
 | Video duration                      | 2:27.000; 1920×1080 H.264 with mono AAC audio                                                   |
 | Actual tested browser / version     | Google Chrome 152 on macOS                                                                      |
 | Native registered tool count        | 75 unique; authentication-disabled Pro; 0 errors                                                |
